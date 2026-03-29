@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -93,72 +94,80 @@ class ResponseStore:
             )"""
         )
         self._conn.commit()
+        self._lock = threading.RLock()
 
     def get(self, response_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a stored response by ID (updates access time for LRU)."""
-        row = self._conn.execute(
-            "SELECT data FROM responses WHERE response_id = ?", (response_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        import time
-        self._conn.execute(
-            "UPDATE responses SET accessed_at = ? WHERE response_id = ?",
-            (time.time(), response_id),
-        )
-        self._conn.commit()
-        return json.loads(row[0])
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT data FROM responses WHERE response_id = ?", (response_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            import time
+            self._conn.execute(
+                "UPDATE responses SET accessed_at = ? WHERE response_id = ?",
+                (time.time(), response_id),
+            )
+            self._conn.commit()
+            return json.loads(row[0])
 
     def put(self, response_id: str, data: Dict[str, Any]) -> None:
         """Store a response, evicting the oldest if at capacity."""
         import time
-        self._conn.execute(
-            "INSERT OR REPLACE INTO responses (response_id, data, accessed_at) VALUES (?, ?, ?)",
-            (response_id, json.dumps(data, default=str), time.time()),
-        )
-        # Evict oldest entries beyond max_size
-        count = self._conn.execute("SELECT COUNT(*) FROM responses").fetchone()[0]
-        if count > self._max_size:
+        with self._lock:
             self._conn.execute(
-                "DELETE FROM responses WHERE response_id IN "
-                "(SELECT response_id FROM responses ORDER BY accessed_at ASC LIMIT ?)",
-                (count - self._max_size,),
+                "INSERT OR REPLACE INTO responses (response_id, data, accessed_at) VALUES (?, ?, ?)",
+                (response_id, json.dumps(data, default=str), time.time()),
             )
-        self._conn.commit()
+            # Evict oldest entries beyond max_size
+            count = self._conn.execute("SELECT COUNT(*) FROM responses").fetchone()[0]
+            if count > self._max_size:
+                self._conn.execute(
+                    "DELETE FROM responses WHERE response_id IN "
+                    "(SELECT response_id FROM responses ORDER BY accessed_at ASC LIMIT ?)",
+                    (count - self._max_size,),
+                )
+            self._conn.commit()
 
     def delete(self, response_id: str) -> bool:
         """Remove a response from the store. Returns True if found and deleted."""
-        cursor = self._conn.execute(
-            "DELETE FROM responses WHERE response_id = ?", (response_id,)
-        )
-        self._conn.commit()
-        return cursor.rowcount > 0
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM responses WHERE response_id = ?", (response_id,)
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
 
     def get_conversation(self, name: str) -> Optional[str]:
         """Get the latest response_id for a conversation name."""
-        row = self._conn.execute(
-            "SELECT response_id FROM conversations WHERE name = ?", (name,)
-        ).fetchone()
-        return row[0] if row else None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT response_id FROM conversations WHERE name = ?", (name,)
+            ).fetchone()
+            return row[0] if row else None
 
     def set_conversation(self, name: str, response_id: str) -> None:
         """Map a conversation name to its latest response_id."""
-        self._conn.execute(
-            "INSERT OR REPLACE INTO conversations (name, response_id) VALUES (?, ?)",
-            (name, response_id),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO conversations (name, response_id) VALUES (?, ?)",
+                (name, response_id),
+            )
+            self._conn.commit()
 
     def close(self) -> None:
         """Close the database connection."""
-        try:
-            self._conn.close()
-        except Exception:
-            pass
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
 
     def __len__(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) FROM responses").fetchone()
-        return row[0] if row else 0
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) FROM responses").fetchone()
+            return row[0] if row else 0
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +303,9 @@ class APIServerAdapter(BasePlatformAdapter):
         self._host: str = extra.get("host", os.getenv("API_SERVER_HOST", DEFAULT_HOST))
         self._port: int = int(extra.get("port", os.getenv("API_SERVER_PORT", str(DEFAULT_PORT))))
         self._api_key: str = extra.get("key", os.getenv("API_SERVER_KEY", ""))
+        self._allow_noauth: bool = (
+            os.getenv("API_SERVER_ALLOW_NOAUTH", "").lower() in ("true", "1", "yes")
+        )
         self._cors_origins: tuple[str, ...] = self._parse_cors_origins(
             extra.get("cors_origins", os.getenv("API_SERVER_CORS_ORIGINS", "")),
         )
@@ -359,7 +371,12 @@ class APIServerAdapter(BasePlatformAdapter):
         If no API key is configured, all requests are allowed.
         """
         if not self._api_key:
-            return None  # No key configured — allow all (local-only use)
+            if self._allow_noauth:
+                return None  # Explicitly allowed — no-auth mode
+            return web.json_response(
+                {"error": {"message": "API key required but not configured. Set API_SERVER_KEY or API_SERVER_ALLOW_NOAUTH=true to permit unauthenticated access (not recommended on non-loopback hosts).", "type": "invalid_request_error", "code": "no_api_key"}},
+                status=401,
+            )
 
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -1279,6 +1296,12 @@ class APIServerAdapter(BasePlatformAdapter):
             await self._site.start()
 
             self._mark_connected()
+            if not self._api_key and not self._allow_noauth:
+                logger.warning(
+                    "[%s] API server has no API key configured and no-auth mode is not explicitly enabled. "
+                    "All requests will be rejected. Set API_SERVER_KEY or API_SERVER_ALLOW_NOAUTH=true.",
+                    self.name,
+                )
             logger.info(
                 "[%s] API server listening on http://%s:%d",
                 self.name, self._host, self._port,

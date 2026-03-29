@@ -155,12 +155,15 @@ class TestAdapterInit:
 
 
 class TestAuth:
-    def test_no_key_configured_allows_all(self):
+    def test_no_key_configured_requires_explicit_noauth(self):
+        """Without API_SERVER_ALLOW_NOAUTH=true, requests are rejected when no key is set."""
         config = PlatformConfig(enabled=True)
         adapter = APIServerAdapter(config)
         mock_request = MagicMock()
         mock_request.headers = {}
-        assert adapter._check_auth(mock_request) is None
+        result = adapter._check_auth(mock_request)
+        assert result is not None
+        assert result.status == 401
 
     def test_valid_key_passes(self):
         config = PlatformConfig(enabled=True, extra={"key": "sk-test123"})
@@ -202,14 +205,23 @@ class TestAuth:
 # ---------------------------------------------------------------------------
 
 
-def _make_adapter(api_key: str = "", cors_origins=None) -> APIServerAdapter:
-    """Create an adapter with optional API key."""
+def _make_adapter(api_key: str = "", cors_origins=None, allow_noauth: bool = True) -> APIServerAdapter:
+    """Create an adapter with optional API key.
+
+    By default, allow_noauth=True to preserve backward compatibility with tests.
+    Tests that verify no-auth rejection should use allow_noauth=False.
+    """
     extra = {}
     if api_key:
         extra["key"] = api_key
     if cors_origins is not None:
         extra["cors_origins"] = cors_origins
     config = PlatformConfig(enabled=True, extra=extra)
+    import os
+    if allow_noauth:
+        os.environ["API_SERVER_ALLOW_NOAUTH"] = "true"
+    else:
+        os.environ.pop("API_SERVER_ALLOW_NOAUTH", None)
     return APIServerAdapter(config)
 
 

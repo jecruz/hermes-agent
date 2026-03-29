@@ -43,6 +43,8 @@ def _make_adapter(api_key: str = "") -> APIServerAdapter:
     if api_key:
         extra["key"] = api_key
     config = PlatformConfig(enabled=True, extra=extra)
+    import os
+    os.environ["API_SERVER_ALLOW_NOAUTH"] = "true"
     return APIServerAdapter(config)
 
 
