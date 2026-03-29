@@ -15,6 +15,7 @@ Usage:
 
 import logging
 import os
+import re
 import shutil
 import sys
 import json
@@ -356,7 +357,7 @@ def load_cli_config() -> Dict[str, Any]:
         # Persistent shell (non-local backends)
         "persistent_shell": "TERMINAL_PERSISTENT_SHELL",
         # Sudo support (works with all backends)
-        "sudo_password": "SUDO_PASSWORD",
+        "sudo_password": "SUDO_PASSWORD",  # placeholder
     }
     
     # Apply config values to env vars so terminal_tool picks them up.
@@ -397,19 +398,19 @@ def load_cli_config() -> Dict[str, Any]:
             "provider": "AUXILIARY_VISION_PROVIDER",
             "model": "AUXILIARY_VISION_MODEL",
             "base_url": "AUXILIARY_VISION_BASE_URL",
-            "api_key": "AUXILIARY_VISION_API_KEY",
+            "api_key": "AUXILIARY_VISION_API_KEY",  # placeholder
         },
         "web_extract": {
             "provider": "AUXILIARY_WEB_EXTRACT_PROVIDER",
             "model": "AUXILIARY_WEB_EXTRACT_MODEL",
             "base_url": "AUXILIARY_WEB_EXTRACT_BASE_URL",
-            "api_key": "AUXILIARY_WEB_EXTRACT_API_KEY",
+            "api_key": "AUXILIARY_WEB_EXTRACT_API_KEY",  # placeholder
         },
         "approval": {
             "provider": "AUXILIARY_APPROVAL_PROVIDER",
             "model": "AUXILIARY_APPROVAL_MODEL",
             "base_url": "AUXILIARY_APPROVAL_BASE_URL",
-            "api_key": "AUXILIARY_APPROVAL_API_KEY",
+            "api_key": "AUXILIARY_APPROVAL_API_KEY",  # placeholder
         },
     }
     
@@ -881,6 +882,23 @@ COMPACT_BANNER = """
 [bold #FFD700]║[/]  [#CD7F32]Messenger of the Digital Gods[/]    [dim #B8860B]Nous Research[/]   [bold #FFD700]║[/]
 [bold #FFD700]╚══════════════════════════════════════════════════════════════╝[/]
 """
+
+# Pre-compiled regex patterns for performance (avoids re-compilation on every call)
+_TTS_FENCED_CODE_RE = re.compile(r"```[\s\S]*?```")
+_TTS_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_TTS_URL_RE = re.compile(r"https?://\S+")
+_TTS_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_TTS_ITALIC_RE = re.compile(r"\*(.+?)\*")
+_TTS_INLINE_CODE_RE = re.compile(r"`(.+?)`")
+_TTS_HEADER_RE = re.compile(r"^#+\s*", flags=re.MULTILINE)
+_TTS_LIST_ITEM_RE = re.compile(r"^\s*[-*]\s+", flags=re.MULTILINE)
+_TTS_HR_RE = re.compile(r"---+")
+_TTS_EXCESSIVE_NEWLINES_RE = re.compile(r"\n{3,}")
+
+_REASONING_SCRATCHPAD_RE = re.compile(r"<REASONING_SCRATCHPAD>.*?</REASONING_SCRATCHPAD>\s*", flags=re.DOTALL)
+_REASONING_SCRATCHPAD_UNCLOSED_RE = re.compile(r"<REASONING_SCRATCHPAD>.*$", flags=re.DOTALL)
+
+_PASTE_REF_RE = re.compile(r"\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]")
 
 
 def _build_compact_banner() -> str:
@@ -2276,16 +2294,9 @@ class HermesCLI:
         def _strip_reasoning(text: str) -> str:
             """Remove <REASONING_SCRATCHPAD>...</REASONING_SCRATCHPAD> blocks
             from displayed text (reasoning model internal thoughts)."""
-            import re
-            cleaned = re.sub(
-                r"<REASONING_SCRATCHPAD>.*?</REASONING_SCRATCHPAD>\s*",
-                "", text, flags=re.DOTALL,
-            )
+            cleaned = _REASONING_SCRATCHPAD_RE.sub("", text)
             # Also strip unclosed reasoning tags at the end
-            cleaned = re.sub(
-                r"<REASONING_SCRATCHPAD>.*$",
-                "", cleaned, flags=re.DOTALL,
-            )
+            cleaned = _REASONING_SCRATCHPAD_UNCLOSED_RE.sub("", cleaned)
             return cleaned.strip()
 
         # Collect displayable entries (skip system, tool-result messages)
@@ -5191,20 +5202,18 @@ class HermesCLI:
         try:
             from tools.tts_tool import text_to_speech_tool
             from tools.voice_mode import play_audio_file
-            import re
-
             # Strip markdown and non-speech content for cleaner TTS
             tts_text = text[:4000] if len(text) > 4000 else text
-            tts_text = re.sub(r'```[\s\S]*?```', ' ', tts_text)   # fenced code blocks
-            tts_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', tts_text)  # [text](url) -> text
-            tts_text = re.sub(r'https?://\S+', '', tts_text)      # URLs
-            tts_text = re.sub(r'\*\*(.+?)\*\*', r'\1', tts_text)  # bold
-            tts_text = re.sub(r'\*(.+?)\*', r'\1', tts_text)      # italic
-            tts_text = re.sub(r'`(.+?)`', r'\1', tts_text)        # inline code
-            tts_text = re.sub(r'^#+\s*', '', tts_text, flags=re.MULTILINE)  # headers
-            tts_text = re.sub(r'^\s*[-*]\s+', '', tts_text, flags=re.MULTILINE)  # list items
-            tts_text = re.sub(r'---+', '', tts_text)              # horizontal rules
-            tts_text = re.sub(r'\n{3,}', '\n\n', tts_text)        # excessive newlines
+            tts_text = _TTS_FENCED_CODE_RE.sub(' ', tts_text)
+            tts_text = _TTS_LINK_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_URL_RE.sub('', tts_text)
+            tts_text = _TTS_BOLD_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_ITALIC_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_INLINE_CODE_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_HEADER_RE.sub('', tts_text)
+            tts_text = _TTS_LIST_ITEM_RE.sub('', tts_text)
+            tts_text = _TTS_HR_RE.sub('', tts_text)
+            tts_text = _TTS_EXCESSIVE_NEWLINES_RE.sub('\n\n', tts_text)
             tts_text = tts_text.strip()
             if not tts_text:
                 return
@@ -7482,9 +7491,7 @@ class HermesCLI:
                         continue
                     
                     # Expand paste references back to full content
-                    import re as _re
-                    _paste_ref_re = _re.compile(r'\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]')
-                    paste_refs = list(_paste_ref_re.finditer(user_input)) if isinstance(user_input, str) else []
+                    paste_refs = list(_PASTE_REF_RE.finditer(user_input)) if isinstance(user_input, str) else []
                     if paste_refs:
                         def _expand_ref(m):
                             p = Path(m.group(1))
