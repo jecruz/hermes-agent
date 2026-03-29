@@ -3713,7 +3713,7 @@ For more help on a command:
     skills_snapshot = skills_subparsers.add_parser("snapshot", help="Export/import skill configurations")
     snapshot_subparsers = skills_snapshot.add_subparsers(dest="snapshot_action")
     snap_export = snapshot_subparsers.add_parser("export", help="Export installed skills to a file")
-    snap_export.add_argument("output", help="Output JSON file path")
+    snap_export.add_argument("output", help="Output JSON file path (use - for stdout)")
     snap_import = snapshot_subparsers.add_parser("import", help="Import and install skills from a file")
     snap_import.add_argument("input", help="Input JSON file path")
     snap_import.add_argument("--force", action="store_true", help="Force install despite caution verdict")
@@ -3990,7 +3990,7 @@ For more help on a command:
     sessions_list.add_argument("--limit", type=int, default=20, help="Max sessions to show")
 
     sessions_export = sessions_subparsers.add_parser("export", help="Export sessions to a JSONL file")
-    sessions_export.add_argument("output", help="Output JSONL file path")
+    sessions_export.add_argument("output", help="Output JSONL file path (use - for stdout)")
     sessions_export.add_argument("--source", help="Filter by source")
     sessions_export.add_argument("--session-id", help="Export a specific session")
 
@@ -4073,7 +4073,8 @@ For more help on a command:
                     return
                 line = _json.dumps(data, ensure_ascii=False) + "\n"
                 if args.output == "-":
-                    import sys; sys.stdout.write(line)
+                    import sys
+                    sys.stdout.write(line)
                 else:
                     with open(args.output, "w", encoding="utf-8") as f:
                         f.write(line)
