@@ -43,7 +43,7 @@ def _make_config(
     secret="",
     rate_limit=30,
     max_body_bytes=1_048_576,
-    host="0.0.0.0",
+    host="127.0.0.1",
     port=0,  # let OS pick a free port in tests
 ):
     """Build a PlatformConfig suitable for WebhookAdapter."""
@@ -617,3 +617,34 @@ class TestCheckRequirements:
     @patch("gateway.platforms.webhook.AIOHTTP_AVAILABLE", False)
     def test_returns_false_without_aiohttp(self):
         assert check_webhook_requirements() is False
+
+
+# ===================================================================
+# Bind address security
+# ===================================================================
+
+
+class TestBindAddress:
+    def test_default_host_is_localhost(self):
+        """Default bind address must be 127.0.0.1 to prevent external access.
+
+        Binding to 0.0.0.0 exposes the webhook receiver to all network
+        interfaces. External services call through a reverse proxy (nginx,
+        cloudflare, etc.) which forwards to localhost — direct exposure
+        bypasses that protection layer.
+        """
+        from gateway.platforms.webhook import DEFAULT_HOST
+
+        assert DEFAULT_HOST == "127.0.0.1"
+
+    def test_adapter_respects_default_host(self):
+        """Adapter must use DEFAULT_HOST when no host is configured."""
+        config = _make_config(routes={"test": {"secret": "s", "prompt": "x"}})
+        adapter = WebhookAdapter(config)
+        assert adapter._host == "127.0.0.1"
+
+    def test_adapter_respects_custom_host(self):
+        """Explicit host configuration must be respected."""
+        config = _make_config(host="10.0.0.1")
+        adapter = WebhookAdapter(config)
+        assert adapter._host == "10.0.0.1"
