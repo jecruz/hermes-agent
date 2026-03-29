@@ -45,6 +45,7 @@ from typing import List, Dict, Any, Optional
 import httpx
 from firecrawl import Firecrawl
 from agent.auxiliary_client import async_call_llm, extract_content_or_reasoning
+from agent.http_cache import get_cached, set_cached
 from tools.debug_helpers import DebugSession
 from tools.url_safety import is_safe_url
 from tools.website_policy import check_website_access
@@ -171,6 +172,7 @@ def _tavily_request(endpoint: str, payload: dict) -> dict:
 
     Auth is provided via ``api_key`` in the JSON body (no header-based auth).
     Raises ``ValueError`` if ``TAVILY_API_KEY`` is not set.
+    Responses are cached for 5 minutes to avoid redundant API calls.
     """
     api_key = os.getenv("TAVILY_API_KEY")
     if not api_key:
@@ -178,12 +180,25 @@ def _tavily_request(endpoint: str, payload: dict) -> dict:
             "TAVILY_API_KEY environment variable not set. "
             "Get your API key at https://app.tavily.com/home"
         )
-    payload["api_key"] = api_key
     url = f"{_TAVILY_BASE_URL}/{endpoint.lstrip('/')}"
+    # Build cache key from endpoint + payload excluding api_key
+    cache_payload = {k: v for k, v in payload.items() if k != "api_key"}
+
+    # Check cache first (cache key does NOT include api_key)
+    cached = get_cached("POST", url, cache_payload)
+    if cached is not None:
+        return cached
+
+    # Add api_key only for the actual request
+    request_payload = dict(cache_payload, api_key=api_key)
     logger.info("Tavily %s request to %s", endpoint, url)
-    response = httpx.post(url, json=payload, timeout=60)
+    response = httpx.post(url, json=request_payload, timeout=60)
     response.raise_for_status()
-    return response.json()
+    result = response.json()
+
+    # Cache the response (TTL=300s, same for all Tavily responses)
+    set_cached("POST", url, result, cache_payload, ttl=300)
+    return result
 
 
 def _normalize_tavily_search_results(response: dict) -> dict:
@@ -631,10 +646,18 @@ def _get_exa_client():
 # ─── Exa Search & Extract Helpers ─────────────────────────────────────────────
 
 def _exa_search(query: str, limit: int = 10) -> dict:
-    """Search using the Exa SDK and return results as a dict."""
+    """Search using the Exa SDK and return results as a dict.
+
+    Responses are cached for 5 minutes to avoid redundant API calls.
+    """
     from tools.interrupt import is_interrupted
     if is_interrupted():
         return {"error": "Interrupted", "success": False}
+
+    cache_key = (query, limit)
+    cached = get_cached("exa_search", cache_key)
+    if cached is not None:
+        return cached
 
     logger.info("Exa search: '%s' (limit=%d)", query, limit)
     response = _get_exa_client().search(
@@ -655,7 +678,9 @@ def _exa_search(query: str, limit: int = 10) -> dict:
             "position": i + 1,
         })
 
-    return {"success": True, "data": {"web": web_results}}
+    result = {"success": True, "data": {"web": web_results}}
+    set_cached("exa_search", cache_key, result, ttl=300)
+    return result
 
 
 def _exa_extract(urls: List[str]) -> List[Dict[str, Any]]:
@@ -663,10 +688,16 @@ def _exa_extract(urls: List[str]) -> List[Dict[str, Any]]:
 
     Returns a list of result dicts matching the structure expected by the
     LLM post-processing pipeline (url, title, content, metadata).
+    Responses are cached for 5 minutes to avoid redundant API calls.
     """
     from tools.interrupt import is_interrupted
     if is_interrupted():
         return [{"url": u, "error": "Interrupted", "title": ""} for u in urls]
+
+    cache_key = tuple(sorted(urls))
+    cached = get_cached("exa_extract", cache_key)
+    if cached is not None:
+        return cached
 
     logger.info("Exa extract: %d URL(s)", len(urls))
     response = _get_exa_client().get_contents(
@@ -687,13 +718,17 @@ def _exa_extract(urls: List[str]) -> List[Dict[str, Any]]:
             "metadata": {"sourceURL": url, "title": title},
         })
 
+    set_cached("exa_extract", cache_key, results, ttl=300)
     return results
 
 
 # ─── Parallel Search & Extract Helpers ────────────────────────────────────────
 
 def _parallel_search(query: str, limit: int = 5) -> dict:
-    """Search using the Parallel SDK and return results as a dict."""
+    """Search using the Parallel SDK and return results as a dict.
+
+    Responses are cached for 5 minutes to avoid redundant API calls.
+    """
     from tools.interrupt import is_interrupted
     if is_interrupted():
         return {"error": "Interrupted", "success": False}
@@ -701,6 +736,12 @@ def _parallel_search(query: str, limit: int = 5) -> dict:
     mode = os.getenv("PARALLEL_SEARCH_MODE", "agentic").lower().strip()
     if mode not in ("fast", "one-shot", "agentic"):
         mode = "agentic"
+
+    # Check cache first (key excludes API key)
+    cache_key = (query, limit, mode)
+    cached = get_cached("parallel_search", cache_key)
+    if cached is not None:
+        return cached
 
     logger.info("Parallel search: '%s' (mode=%s, limit=%d)", query, mode, limit)
     response = _get_parallel_client().beta.search(
@@ -720,7 +761,9 @@ def _parallel_search(query: str, limit: int = 5) -> dict:
             "position": i + 1,
         })
 
-    return {"success": True, "data": {"web": web_results}}
+    result = {"success": True, "data": {"web": web_results}}
+    set_cached("parallel_search", cache_key, result, ttl=300)
+    return result
 
 
 async def _parallel_extract(urls: List[str]) -> List[Dict[str, Any]]:
@@ -728,10 +771,17 @@ async def _parallel_extract(urls: List[str]) -> List[Dict[str, Any]]:
 
     Returns a list of result dicts matching the structure expected by the
     LLM post-processing pipeline (url, title, content, metadata).
+    Responses are cached for 5 minutes to avoid redundant API calls.
     """
     from tools.interrupt import is_interrupted
     if is_interrupted():
         return [{"url": u, "error": "Interrupted", "title": ""} for u in urls]
+
+    # Check cache first (key is tuple of sorted URLs)
+    cache_key = tuple(sorted(urls))
+    cached = get_cached("parallel_extract", cache_key)
+    if cached is not None:
+        return cached
 
     logger.info("Parallel extract: %d URL(s)", len(urls))
     response = await _get_async_parallel_client().beta.extract(
@@ -763,6 +813,7 @@ async def _parallel_extract(urls: List[str]) -> List[Dict[str, Any]]:
             "metadata": {"sourceURL": error.url or ""},
         })
 
+    set_cached("parallel_extract", cache_key, results, ttl=300)
     return results
 
 
