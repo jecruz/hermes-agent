@@ -7262,22 +7262,22 @@ Rules:
             is_running = cli_ref._agent_running
 
             parts = []
-            # Show elapsed time if agent is running but no spinner/trail yet
-            if is_running and not txt and not trail and elapsed > 0:
+            # Always show elapsed time when agent is running
+            if is_running and elapsed > 0:
                 secs = int(_time.monotonic() - elapsed)
                 if secs < 60:
                     elapsed_str = f"{secs}s"
                 else:
                     elapsed_str = f"{secs // 60}m {secs % 60}s"
-                parts.append(('class:hint', f'  ⚙️ Thinking... {elapsed_str}'))
-                return parts
+                parts.append(('class:hint', f'  ⚙️ {elapsed_str}'))
 
             if not txt and not trail:
-                return []
+                return parts if parts else []
+
             if trail:
-                parts.append(('class:hint', '  ' + ' '.join(trail) + '  '))
+                parts.append(('class:hint', '  ' + ' '.join(trail)))
             if txt:
-                parts.append(('class:hint', f'{txt}'))
+                parts.append(('class:hint', f'  {txt}'))
             return parts
 
         def get_spinner_height():
