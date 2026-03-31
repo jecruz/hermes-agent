@@ -4104,14 +4104,10 @@ Rules:
             # Use existing battle-tested ANSI stripper from tools.ansi_strip
             from tools.ansi_strip import strip_ansi
             enhanced = strip_ansi(raw_enhanced)
-            # DEBUG: log what was stripped
-            import sys
-            print(f"\nDEBUG strip: raw_len={len(raw_enhanced)} enhanced_len={len(enhanced)}", file=sys.stderr)
-            if '\x1b' in enhanced:
-                print(f"DEBUG: ESC still present in enhanced!", file=sys.stderr)
-            # Check for partial sequences
-            if '?[' in enhanced and '\x1b' not in enhanced:
-                print(f"DEBUG: Partial ANSI detected - ESC stripped but rest remains", file=sys.stderr)
+            # Second pass: catch any remaining ANSI-like sequences (ESC may have been displayed as ?)
+            # Remove partial CSI sequences that start with ?[ or just [ followed by numbers and m
+            enhanced = re.sub(r'\?\[[0-9;]*m', '', enhanced)  # ?[1;36m
+            enhanced = re.sub(r'\[[0-9;]*m', '', enhanced)     # [1;36m (ESC was stripped)
             if not enhanced.strip():
                 _cprint("  (X_X) Model returned an empty response — try again")
                 return
