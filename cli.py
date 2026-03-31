@@ -4090,17 +4090,19 @@ Rules:
                 model=model,
                 system=system_prompt,
                 max_tokens=768,
-                thinking={"type": "disabled"},
                 messages=[{"role": "user", "content": raw_prompt}]
             )
-            # Extract text blocks, skip thinking and other internal blocks
+            # Extract text blocks only, skip thinking and other internal blocks
             text_parts = []
             for block in response.content:
                 block_type = getattr(block, "type", None) or ""
-                # Skip non-text blocks (thinking,RedactedReasoning, etc.)
-                if block_type != "text":
-                    continue
-                text_parts.append(getattr(block, "text", ""))
+                block_text = getattr(block, "text", None) or ""
+                # Only accept explicit text blocks with actual content
+                if block_type == "text" and block_text:
+                    text_parts.append(block_text)
+                # Explicitly skip known non-text block types
+                elif block_type in ("thinking", "redacted_reasoning", "矿石", "ore"):
+                    pass  # Skip these
             raw_enhanced = "".join(text_parts).strip()
             # Strip ALL ANSI escape sequences (CSI format: ESC [ ... final-byte)
             enhanced = re.sub(r'\x1b\[[^\x1b\x1a\x07]*[A-Za-z]', '', raw_enhanced)
