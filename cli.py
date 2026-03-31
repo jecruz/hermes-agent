@@ -4100,8 +4100,10 @@ Rules:
                     text_parts.append(getattr(block, "text", ""))
                 # Skip thinking blocks — they're internal, not output
             raw_enhanced = "".join(text_parts).strip()
-            # Strip ALL ANSI escape sequences (CSI format: ESC [ params final-byte)
-            enhanced = re.sub(r'\x1b\[[\x30-\x3f]*[\x40-\x7e]', '', raw_enhanced)
+            # Strip ALL ANSI escape sequences (CSI format: ESC [ ... final-byte)
+            enhanced = re.sub(r'\x1b\[[^\x1b\x1a\x07]*[A-Za-z]', '', raw_enhanced)
+            # Strip OSC sequences (ESC ]) and other escapes
+            enhanced = re.sub(r'\x1b\][^\x07]*\x07|\x1b[()][AB012]|\x1b[>=]', '', enhanced)
             # Strip dangerous control characters that can corrupt terminal state
             enhanced = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', enhanced)
             if not enhanced.strip():
