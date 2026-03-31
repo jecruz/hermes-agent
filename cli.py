@@ -1273,6 +1273,7 @@ class HermesCLI:
         self._secret_state = None
         self._secret_deadline = 0
         self._spinner_text: str = ""  # thinking spinner text for TUI
+        self._tool_trail: list[str] = []  # completed tool calls shown as trail
         self._command_running = False
         self._command_status = ""
         self._attached_images: list[Path] = []
@@ -4366,6 +4367,7 @@ Rules:
                 # Clear spinner only if no foreground agent owns it
                 if not self._agent_running:
                     self._spinner_text = ""
+                    self._tool_trail = []
                 if self._app:
                     self._invalidate(min_interval=0)
 
@@ -5164,6 +5166,10 @@ Rules:
             _pl = get_tool_preview_max_len()
             if _pl > 0 and len(label) > _pl:
                 label = label[:_pl - 3] + "..."
+            # Add to tool trail (keep last 5)
+            self._tool_trail.append(f"{emoji}")
+            if len(self._tool_trail) > 5:
+                self._tool_trail.pop(0)
             self._spinner_text = f"{emoji} {label}"
             self._invalidate()
 
@@ -7249,12 +7255,19 @@ Rules:
 
         def get_spinner_text():
             txt = cli_ref._spinner_text
-            if not txt:
+            trail = cli_ref._tool_trail
+            if not txt and not trail:
                 return []
-            return [('class:hint', f'  {txt}')]
+            # Show current activity + tool trail
+            parts = []
+            if trail:
+                parts.append(('class:hint', '  ' + ' '.join(trail) + '  '))
+            if txt:
+                parts.append(('class:hint', f'{txt}'))
+            return parts
 
         def get_spinner_height():
-            return 1 if cli_ref._spinner_text else 0
+            return 1 if (cli_ref._spinner_text or cli_ref._tool_trail) else 0
 
         spinner_widget = Window(
             content=FormattedTextControl(get_spinner_text),
@@ -7714,6 +7727,7 @@ Rules:
                     finally:
                         self._agent_running = False
                         self._spinner_text = ""
+                        self._tool_trail = []
                         app.invalidate()  # Refresh status line
 
                         # Continuous voice: auto-restart recording after agent responds.
