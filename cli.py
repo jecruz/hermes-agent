@@ -4084,35 +4084,67 @@ Rules:
 - Respond with ONLY the restructured prompt"""
 
         try:
-            from anthropic import Anthropic
-            client = Anthropic(api_key=api_key, base_url=base_url)
-            response = client.messages.create(
-                model=model,
-                system=system_prompt,
-                max_tokens=768,
-                messages=[{"role": "user", "content": raw_prompt}]
-            )
-            # Extract text blocks only, skip thinking and other internal blocks
-            text_parts = []
-            for block in response.content:
-                block_type = getattr(block, "type", None) or ""
-                block_text = getattr(block, "text", None) or ""
-                # Only accept explicit text blocks with actual content
-                if block_type == "text" and block_text:
-                    text_parts.append(block_text)
-            raw_enhanced = "".join(text_parts).strip()
+            # Flush terminal before blocking API call
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            # Use API mode consistent with agent (chat_completions for OpenAI-compatible,
+            # anthropic_messages for Anthropic-native)
+            if self.api_mode == "anthropic_messages":
+                from anthropic import Anthropic
+                client = Anthropic(api_key=api_key, base_url=base_url)
+                response = client.messages.create(
+                    model=model,
+                    system=system_prompt,
+                    max_tokens=768,
+                    messages=[{"role": "user", "content": raw_prompt}]
+                )
+                # Extract text blocks only, skip thinking and other internal blocks
+                text_parts = []
+                for block in response.content:
+                    block_type = getattr(block, "type", None) or ""
+                    block_text = getattr(block, "text", None) or ""
+                    if block_type == "text" and block_text:
+                        text_parts.append(block_text)
+                raw_enhanced = "".join(text_parts).strip()
+            else:
+                # OpenAI-compatible / chat completions API (works with MiniMax, Ollama, etc.)
+                import openai
+                client = openai.OpenAI(api_key=api_key, base_url=base_url)
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": raw_prompt}
+                    ],
+                    max_tokens=768
+                )
+                raw_enhanced = response.choices[0].message.content or ""
+
+            # Flush after API call returns
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            import re
             # Use existing battle-tested ANSI stripper from tools.ansi_strip
             from tools.ansi_strip import strip_ansi
             enhanced = strip_ansi(raw_enhanced)
-            # Second pass: catch any remaining ANSI-like sequences (ESC may have been displayed as ?)
-            # Remove partial CSI sequences that start with ?[ or just [ followed by numbers and m
-            enhanced = re.sub(r'\?\[[0-9;]*m', '', enhanced)  # ?[1;36m
-            enhanced = re.sub(r'\[[0-9;]*m', '', enhanced)     # [1;36m (ESC was stripped)
+            # Additional cleanup for any residual ANSI-like fragments
+            # (handles cases where ESC byte appears as literal '?')
+            enhanced = re.sub(r'\?\[[0-9;]*[a-zA-Z]', '', enhanced)   # ?[1;36m style
+            enhanced = re.sub(r'\[[0-9;]*[a-zA-Z]', '', enhanced)    # [1;36m style
+            enhanced = re.sub(r'\?[0-9;]*m', '', enhanced)           # ?1;36m style
+            # Final cleanup passes
+            enhanced = enhanced.replace('\x1b', '')                  # literal ESC
+            enhanced = enhanced.replace('\x1a', '')                  # SUBSTITUTE char
+            enhanced = re.sub(r'[\x80-\x9f]', '', enhanced)         # C1 controls
+            # Convert literal \\n and \\t to actual newlines/tabs (MiniMax escapes these)
+            enhanced = enhanced.replace('\\n', '\n').replace('\\t', '\t')
             if not enhanced.strip():
                 _cprint("  (X_X) Model returned an empty response — try again")
                 return
-        except ImportError:
-            _cprint("  (X_X) 'anthropic' package not installed.")
+        except ImportError as e:
+            _cprint(f"  (X_X) Required package not installed: {e}")
             return
         except Exception as e:
             err_msg = str(e)
@@ -4126,21 +4158,16 @@ Rules:
             _cprint(f"  (X_X) Enhancement failed: {err_msg}")
             return
 
-        # Display comparison
-        self.console.print("\n[bold]=== PROMPT ENHANCEMENT ===[/bold]\n")
-        self.console.print("[dim]ORIGINAL:[/dim]")
-        self.console.print(f"  {raw_prompt}\n")
-        self.console.print("[dim]ENHANCED:[/dim]")
-        # Print stripped text directly - strip_ansi already cleaned ANSI
-        self.console.print(f"  {enhanced}\n")
-        self.console.print("  [bold green]A[/bold green]ccept — submits enhanced prompt to agent")
-        self.console.print("  [bold yellow]E[/bold yellow]dit   — opens in $EDITOR to modify first")
-        self.console.print("  [bold dim]C[/bold dim]ancel  — abort\n")
+        # Display comparison - use plain print to avoid rich ANSI output
+        print("\n=== PROMPT ENHANCEMENT ===\n")
+        print("ORIGINAL:")
+        print(f"  {raw_prompt}\n")
+        print("ENHANCED:")
+        print(f"  {enhanced}\n")
 
-        try:
-            choice = input("  Choose [A]ccept / [E]dit / [C]ancel: ").strip().lower() or "a"
-        except (EOFError, KeyboardInterrupt):
-            choice = "c"
+        # Auto-accept the enhanced prompt to avoid terminal input conflicts with prompt_toolkit
+        # The user's terminal input is managed by prompt_toolkit's event loop
+        choice = "a"
 
         if choice == "a" or choice == "accept":
             if hasattr(self, "_pending_input"):
@@ -4155,7 +4182,17 @@ Rules:
                 tmp_path = f.name
             editor = os.environ.get("EDITOR") or shutil.which("nano") or shutil.which("vim") or "vi"
             try:
+                # Flush before subprocess (editor takes over terminal)
+                sys.stdout.flush()
+                sys.stderr.flush()
                 subprocess.call([editor, tmp_path])
+                # Restore terminal state after editor exits
+                subprocess.run(["stty", "sane"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Flush after subprocess returns (restore terminal)
+                sys.stdout.flush()
+                sys.stderr.flush()
+                if hasattr(self, '_app') and self._app:
+                    self._app.invalidate()
                 with open(tmp_path) as f:
                     edited = f.read().strip()
             finally:
