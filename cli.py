@@ -4129,10 +4129,6 @@ Rules:
         self.console.print("[dim]ENHANCED:[/dim]")
         # Use console's built-in escaping to safely display the enhanced prompt
         self.console.print(f"  [code]{enhanced}[/code]\n")
-        # Reset terminal to ensure clean state after any stray escape sequences
-        import sys
-        sys.stdout.write("\x1b[0m\x1b[?1049l\x1b[?1l\x1b[?3l\x1b[?4l\x1b[?5l\x1b[?7h\x1b[?8h\x1b[?25h\x1b[?2004l")
-        sys.stdout.flush()
         self.console.print("  [bold green]A[/bold green]ccept — submits enhanced prompt to agent")
         self.console.print("  [bold yellow]E[/bold yellow]dit   — opens in $EDITOR to modify first")
         self.console.print("  [bold dim]C[/bold dim]ancel  — abort\n")
