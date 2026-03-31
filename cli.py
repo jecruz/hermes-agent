@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import sys
 import json
 import atexit
@@ -3913,6 +3914,8 @@ class HermesCLI:
                         print(f"  {status} {p['name']}{version}{detail}{error}")
             except Exception as e:
                 print(f"Plugin system error: {e}")
+        elif canonical == "format-prompt":
+            self._handle_format_prompt_command(cmd_original)
         elif canonical == "rollback":
             self._handle_rollback_command(cmd_original)
         elif canonical == "stop":
@@ -4041,7 +4044,126 @@ class HermesCLI:
                     _cprint(f"{_DIM}{_GOLD}Type /help for available commands{_RST}")
         
         return True
-    
+
+    def _handle_format_prompt_command(self, cmd: str):
+        """Handle /format-prompt <rough prompt> — enhance via active model, show preview, inject on accept."""
+        import tempfile
+        parts = cmd.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            _cprint("  Usage: /format-prompt <rough prompt>")
+            _cprint("  Example: /format-prompt design a markdown editor")
+            return
+
+        raw_prompt = parts[1].strip()
+
+        if not self._ensure_runtime_credentials():
+            _cprint("  (>_<) Cannot format prompt: no valid credentials.")
+            return
+
+        base_url = self.base_url
+        api_key = self.api_key
+        model = self.model
+
+        system_prompt = """You are a prompt restructuring engine. Given a rough user prompt,
+rewrite it into a well-structured agent prompt. Use this exact format:
+
+**Role:** [Who the agent should be]
+**Goal:** [What they need to accomplish]
+**Context:** [Background info, constraints, or assumptions]
+**Steps:** [If applicable, numbered steps for the agent]
+**Output:** [What the final result should look like]
+**Style:** [Tone, verbosity, any communication preferences]
+
+Rules:
+- Preserve all original intent and details
+- Be specific where the original was vague
+- Add reasonable assumptions where helpful
+- Remove ambiguity
+- Keep it actionable
+- If the prompt is already well-structured, improve clarity but keep the format
+- Respond with ONLY the restructured prompt"""
+
+        try:
+            from anthropic import Anthropic
+            client = Anthropic(api_key=api_key, base_url=base_url)
+            response = client.messages.create(
+                model=model,
+                system=system_prompt,
+                max_tokens=768,
+                messages=[{"role": "user", "content": raw_prompt}]
+            )
+            # Extract text blocks, skip thinking blocks
+            text_parts = []
+            for block in response.content:
+                block_type = getattr(block, "type", None) or ""
+                if block_type == "text":
+                    text_parts.append(getattr(block, "text", ""))
+                # Skip thinking blocks — they're internal, not output
+            raw_enhanced = "".join(text_parts).strip()
+            # Strip ANSI escape sequences (SGR + broader patterns)
+            enhanced = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_enhanced)
+            if not enhanced.strip():
+                _cprint("  (X_X) Model returned an empty response — try again")
+                return
+        except ImportError:
+            _cprint("  (X_X) 'anthropic' package not installed.")
+            return
+        except Exception as e:
+            err_msg = str(e)
+            if hasattr(e, "response"):
+                resp = e.response
+                err_msg += f" | Status: {resp.status_code}"
+                # Only log response body for non-OK statuses, and only a safe snippet
+                if resp.status_code >= 400:
+                    body_snippet = resp.text[:80] if resp.text else "(empty)"
+                    err_msg += f" | {body_snippet}"
+            _cprint(f"  (X_X) Enhancement failed: {err_msg}")
+            return
+
+        # Display comparison
+        self.console.print("\n[bold]=== PROMPT ENHANCEMENT ===[/bold]\n")
+        self.console.print("[dim]ORIGINAL:[/dim]")
+        self.console.print(f"  {raw_prompt}\n")
+        self.console.print("[dim]ENHANCED:[/dim]")
+        self.console.print(f"  {enhanced}\n")
+        self.console.print("  [bold green]A[/bold green]ccept — submits enhanced prompt to agent")
+        self.console.print("  [bold yellow]E[/bold yellow]dit   — opens in $EDITOR to modify first")
+        self.console.print("  [bold dim]C[/bold dim]ancel  — abort\n")
+
+        try:
+            choice = input("  Choose [A]ccept / [E]dit / [C]ancel: ").strip().lower() or "a"
+        except (EOFError, KeyboardInterrupt):
+            choice = "c"
+
+        if choice == "a" or choice == "accept":
+            if hasattr(self, "_pending_input"):
+                self._pending_input.put(enhanced)
+                _cprint("  (^o^) Enhanced prompt queued — agent will respond shortly")
+            else:
+                _cprint("  (._.) Session not ready — paste the enhanced prompt manually:")
+                self.console.print(enhanced)
+        elif choice == "e" or choice == "edit":
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+                f.write(enhanced)
+                tmp_path = f.name
+            editor = os.environ.get("EDITOR") or shutil.which("nano") or shutil.which("vim") or "vi"
+            try:
+                subprocess.call([editor, tmp_path])
+                with open(tmp_path) as f:
+                    edited = f.read().strip()
+            finally:
+                os.unlink(tmp_path)
+            if edited and hasattr(self, "_pending_input"):
+                self._pending_input.put(edited)
+                _cprint("  (^o^) Edited prompt queued — agent will respond shortly")
+            elif edited:
+                _cprint("  (._.) Session not ready — paste the edited prompt manually:")
+                self.console.print(edited)
+            else:
+                _cprint("  (._.) Empty edit — cancelled")
+        else:
+            _cprint("  (._.) Cancelled")
+
     def _handle_plan_command(self, cmd: str):
         """Handle /plan [request] — load the bundled plan skill."""
         parts = cmd.strip().split(maxsplit=1)
