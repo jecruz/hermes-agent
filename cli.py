@@ -4127,8 +4127,8 @@ Rules:
         self.console.print("[dim]ORIGINAL:[/dim]")
         self.console.print(f"  {raw_prompt}\n")
         self.console.print("[dim]ENHANCED:[/dim]")
-        # Use console's built-in escaping to safely display the enhanced prompt
-        self.console.print(f"  [code]{enhanced}[/code]\n")
+        # Print stripped text directly - strip_ansi already cleaned ANSI
+        self.console.print(f"  {enhanced}\n")
         self.console.print("  [bold green]A[/bold green]ccept — submits enhanced prompt to agent")
         self.console.print("  [bold yellow]E[/bold yellow]dit   — opens in $EDITOR to modify first")
         self.console.print("  [bold dim]C[/bold dim]ancel  — abort\n")
