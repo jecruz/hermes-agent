@@ -4092,6 +4092,11 @@ Rules:
                 max_tokens=768,
                 messages=[{"role": "user", "content": raw_prompt}]
             )
+            # DEBUG: print raw response structure
+            import sys
+            print(f"\nDEBUG: response.content type = {type(response.content)}", file=sys.stderr)
+            for i, block in enumerate(response.content):
+                print(f"DEBUG: block[{i}] type={type(block)} repr={repr(block)[:200]}", file=sys.stderr)
             # Extract text blocks only, skip thinking and other internal blocks
             text_parts = []
             for block in response.content:
