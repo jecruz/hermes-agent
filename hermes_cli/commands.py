@@ -121,6 +121,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                subcommands=("connect", "disconnect", "status")),
     CommandDef("plugins", "List installed plugins and their status",
                "Tools & Skills", cli_only=True),
+    CommandDef("format-prompt", "Enhance a rough prompt using the active model",
+               "Tools & Skills", aliases=("fp",), args_hint="<prompt>"),
 
     # Info
     CommandDef("commands", "Browse all commands and skills (paginated)", "Info",

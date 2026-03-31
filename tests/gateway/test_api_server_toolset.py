@@ -74,6 +74,8 @@ class TestApiServerAdapterToolset:
         from gateway.platforms.api_server import APIServerAdapter
         from gateway.config import PlatformConfig
 
+        import os
+        os.environ["API_SERVER_ALLOW_NOAUTH"] = "true"
         adapter = APIServerAdapter(PlatformConfig())
 
         with patch("gateway.run._resolve_runtime_agent_kwargs") as mock_kwargs, \
@@ -104,6 +106,8 @@ class TestApiServerAdapterToolset:
         from gateway.platforms.api_server import APIServerAdapter
         from gateway.config import PlatformConfig
 
+        import os
+        os.environ["API_SERVER_ALLOW_NOAUTH"] = "true"
         adapter = APIServerAdapter(PlatformConfig())
 
         with patch("gateway.run._resolve_runtime_agent_kwargs") as mock_kwargs, \

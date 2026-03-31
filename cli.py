@@ -15,7 +15,9 @@ Usage:
 
 import logging
 import os
+import re
 import shutil
+import subprocess
 import sys
 import json
 import atexit
@@ -356,7 +358,7 @@ def load_cli_config() -> Dict[str, Any]:
         # Persistent shell (non-local backends)
         "persistent_shell": "TERMINAL_PERSISTENT_SHELL",
         # Sudo support (works with all backends)
-        "sudo_password": "SUDO_PASSWORD",
+        "sudo_password": "SUDO_PASSWORD",  # placeholder
     }
     
     # Apply config values to env vars so terminal_tool picks them up.
@@ -397,19 +399,19 @@ def load_cli_config() -> Dict[str, Any]:
             "provider": "AUXILIARY_VISION_PROVIDER",
             "model": "AUXILIARY_VISION_MODEL",
             "base_url": "AUXILIARY_VISION_BASE_URL",
-            "api_key": "AUXILIARY_VISION_API_KEY",
+            "api_key": "AUXILIARY_VISION_API_KEY",  # placeholder
         },
         "web_extract": {
             "provider": "AUXILIARY_WEB_EXTRACT_PROVIDER",
             "model": "AUXILIARY_WEB_EXTRACT_MODEL",
             "base_url": "AUXILIARY_WEB_EXTRACT_BASE_URL",
-            "api_key": "AUXILIARY_WEB_EXTRACT_API_KEY",
+            "api_key": "AUXILIARY_WEB_EXTRACT_API_KEY",  # placeholder
         },
         "approval": {
             "provider": "AUXILIARY_APPROVAL_PROVIDER",
             "model": "AUXILIARY_APPROVAL_MODEL",
             "base_url": "AUXILIARY_APPROVAL_BASE_URL",
-            "api_key": "AUXILIARY_APPROVAL_API_KEY",
+            "api_key": "AUXILIARY_APPROVAL_API_KEY",  # placeholder
         },
     }
     
@@ -882,6 +884,23 @@ COMPACT_BANNER = """
 [bold #FFD700]╚══════════════════════════════════════════════════════════════╝[/]
 """
 
+# Pre-compiled regex patterns for performance (avoids re-compilation on every call)
+_TTS_FENCED_CODE_RE = re.compile(r"```[\s\S]*?```")
+_TTS_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_TTS_URL_RE = re.compile(r"https?://\S+")
+_TTS_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_TTS_ITALIC_RE = re.compile(r"\*(.+?)\*")
+_TTS_INLINE_CODE_RE = re.compile(r"`(.+?)`")
+_TTS_HEADER_RE = re.compile(r"^#+\s*", flags=re.MULTILINE)
+_TTS_LIST_ITEM_RE = re.compile(r"^\s*[-*]\s+", flags=re.MULTILINE)
+_TTS_HR_RE = re.compile(r"---+")
+_TTS_EXCESSIVE_NEWLINES_RE = re.compile(r"\n{3,}")
+
+_REASONING_SCRATCHPAD_RE = re.compile(r"<REASONING_SCRATCHPAD>.*?</REASONING_SCRATCHPAD>\s*", flags=re.DOTALL)
+_REASONING_SCRATCHPAD_UNCLOSED_RE = re.compile(r"<REASONING_SCRATCHPAD>.*$", flags=re.DOTALL)
+
+_PASTE_REF_RE = re.compile(r"\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]")
+
 
 def _build_compact_banner() -> str:
     """Build a compact banner that fits the current terminal width."""
@@ -1254,6 +1273,8 @@ class HermesCLI:
         self._secret_state = None
         self._secret_deadline = 0
         self._spinner_text: str = ""  # thinking spinner text for TUI
+        self._tool_trail: list[str] = []  # completed tool calls shown as trail
+        self._agent_started_at: float = 0.0  # timestamp when agent started processing
         self._command_running = False
         self._command_status = ""
         self._attached_images: list[Path] = []
@@ -2276,16 +2297,9 @@ class HermesCLI:
         def _strip_reasoning(text: str) -> str:
             """Remove <REASONING_SCRATCHPAD>...</REASONING_SCRATCHPAD> blocks
             from displayed text (reasoning model internal thoughts)."""
-            import re
-            cleaned = re.sub(
-                r"<REASONING_SCRATCHPAD>.*?</REASONING_SCRATCHPAD>\s*",
-                "", text, flags=re.DOTALL,
-            )
+            cleaned = _REASONING_SCRATCHPAD_RE.sub("", text)
             # Also strip unclosed reasoning tags at the end
-            cleaned = re.sub(
-                r"<REASONING_SCRATCHPAD>.*$",
-                "", cleaned, flags=re.DOTALL,
-            )
+            cleaned = _REASONING_SCRATCHPAD_UNCLOSED_RE.sub("", cleaned)
             return cleaned.strip()
 
         # Collect displayable entries (skip system, tool-result messages)
@@ -3902,6 +3916,8 @@ class HermesCLI:
                         print(f"  {status} {p['name']}{version}{detail}{error}")
             except Exception as e:
                 print(f"Plugin system error: {e}")
+        elif canonical == "format-prompt":
+            self._handle_format_prompt_command(cmd_original)
         elif canonical == "rollback":
             self._handle_rollback_command(cmd_original)
         elif canonical == "stop":
@@ -4030,7 +4046,170 @@ class HermesCLI:
                     _cprint(f"{_DIM}{_GOLD}Type /help for available commands{_RST}")
         
         return True
-    
+
+    def _handle_format_prompt_command(self, cmd: str):
+        """Handle /format-prompt <rough prompt> — enhance via active model, show preview, inject on accept."""
+        import tempfile
+        parts = cmd.strip().split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            _cprint("  Usage: /format-prompt <rough prompt>")
+            _cprint("  Example: /format-prompt design a markdown editor")
+            return
+
+        raw_prompt = parts[1].strip()
+
+        if not self._ensure_runtime_credentials():
+            _cprint("  (>_<) Cannot format prompt: no valid credentials.")
+            return
+
+        base_url = self.base_url
+        api_key = self.api_key
+        model = self.model
+
+        system_prompt = """You are a prompt restructuring engine. Given a rough user prompt,
+rewrite it into a well-structured agent prompt. Use this exact format:
+
+**Role:** [Who the agent should be]
+**Goal:** [What they need to accomplish]
+**Context:** [Background info, constraints, or assumptions]
+**Steps:** [If applicable, numbered steps for the agent]
+**Output:** [What the final result should look like]
+**Style:** [Tone, verbosity, any communication preferences]
+
+Rules:
+- Preserve all original intent and details
+- Be specific where the original was vague
+- Add reasonable assumptions where helpful
+- Remove ambiguity
+- Keep it actionable
+- If the prompt is already well-structured, improve clarity but keep the format
+- Respond with ONLY the restructured prompt"""
+
+        try:
+            # Flush terminal before blocking API call
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            # Use API mode consistent with agent (chat_completions for OpenAI-compatible,
+            # anthropic_messages for Anthropic-native)
+            if self.api_mode == "anthropic_messages":
+                from anthropic import Anthropic
+                client = Anthropic(api_key=api_key, base_url=base_url)
+                response = client.messages.create(
+                    model=model,
+                    system=system_prompt,
+                    max_tokens=768,
+                    messages=[{"role": "user", "content": raw_prompt}]
+                )
+                # Extract text blocks only, skip thinking and other internal blocks
+                text_parts = []
+                for block in response.content:
+                    block_type = getattr(block, "type", None) or ""
+                    block_text = getattr(block, "text", None) or ""
+                    if block_type == "text" and block_text:
+                        text_parts.append(block_text)
+                raw_enhanced = "".join(text_parts).strip()
+            else:
+                # OpenAI-compatible / chat completions API (works with MiniMax, Ollama, etc.)
+                import openai
+                client = openai.OpenAI(api_key=api_key, base_url=base_url)
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": raw_prompt}
+                    ],
+                    max_tokens=768
+                )
+                raw_enhanced = response.choices[0].message.content or ""
+
+            # Flush after API call returns
+            sys.stdout.flush()
+            sys.stderr.flush()
+
+            import re
+            # Use existing battle-tested ANSI stripper from tools.ansi_strip
+            from tools.ansi_strip import strip_ansi
+            enhanced = strip_ansi(raw_enhanced)
+            # Additional cleanup for any residual ANSI-like fragments
+            # (handles cases where ESC byte appears as literal '?')
+            enhanced = re.sub(r'\?\[[0-9;]*[a-zA-Z]', '', enhanced)   # ?[1;36m style
+            enhanced = re.sub(r'\[[0-9;]*[a-zA-Z]', '', enhanced)    # [1;36m style
+            enhanced = re.sub(r'\?[0-9;]*m', '', enhanced)           # ?1;36m style
+            # Final cleanup passes
+            enhanced = enhanced.replace('\x1b', '')                  # literal ESC
+            enhanced = enhanced.replace('\x1a', '')                  # SUBSTITUTE char
+            enhanced = re.sub(r'[\x80-\x9f]', '', enhanced)         # C1 controls
+            # Convert literal \\n and \\t to actual newlines/tabs (MiniMax escapes these)
+            enhanced = enhanced.replace('\\n', '\n').replace('\\t', '\t')
+            if not enhanced.strip():
+                _cprint("  (X_X) Model returned an empty response — try again")
+                return
+        except ImportError as e:
+            _cprint(f"  (X_X) Required package not installed: {e}")
+            return
+        except Exception as e:
+            err_msg = str(e)
+            if hasattr(e, "response"):
+                resp = e.response
+                err_msg += f" | Status: {resp.status_code}"
+                # Only log response body for non-OK statuses, and only a safe snippet
+                if resp.status_code >= 400:
+                    body_snippet = resp.text[:80] if resp.text else "(empty)"
+                    err_msg += f" | {body_snippet}"
+            _cprint(f"  (X_X) Enhancement failed: {err_msg}")
+            return
+
+        # Display comparison - use plain print to avoid rich ANSI output
+        print("\n=== PROMPT ENHANCEMENT ===\n")
+        print("ORIGINAL:")
+        print(f"  {raw_prompt}\n")
+        print("ENHANCED:")
+        print(f"  {enhanced}\n")
+
+        # Auto-accept the enhanced prompt to avoid terminal input conflicts with prompt_toolkit
+        # The user's terminal input is managed by prompt_toolkit's event loop
+        choice = "a"
+
+        if choice == "a" or choice == "accept":
+            if hasattr(self, "_pending_input"):
+                self._pending_input.put(enhanced)
+                _cprint("  (^o^) Enhanced prompt queued — agent will respond shortly")
+            else:
+                _cprint("  (._.) Session not ready — paste the enhanced prompt manually:")
+                self.console.print(enhanced)
+        elif choice == "e" or choice == "edit":
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+                f.write(enhanced)
+                tmp_path = f.name
+            editor = os.environ.get("EDITOR") or shutil.which("nano") or shutil.which("vim") or "vi"
+            try:
+                # Flush before subprocess (editor takes over terminal)
+                sys.stdout.flush()
+                sys.stderr.flush()
+                subprocess.call([editor, tmp_path])
+                # Restore terminal state after editor exits
+                subprocess.run(["stty", "sane"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Flush after subprocess returns (restore terminal)
+                sys.stdout.flush()
+                sys.stderr.flush()
+                if hasattr(self, '_app') and self._app:
+                    self._app.invalidate()
+                with open(tmp_path) as f:
+                    edited = f.read().strip()
+            finally:
+                os.unlink(tmp_path)
+            if edited and hasattr(self, "_pending_input"):
+                self._pending_input.put(edited)
+                _cprint("  (^o^) Edited prompt queued — agent will respond shortly")
+            elif edited:
+                _cprint("  (._.) Session not ready — paste the edited prompt manually:")
+                self.console.print(edited)
+            else:
+                _cprint("  (._.) Empty edit — cancelled")
+        else:
+            _cprint("  (._.) Cancelled")
+
     def _handle_plan_command(self, cmd: str):
         """Handle /plan [request] — load the bundled plan skill."""
         parts = cmd.strip().split(maxsplit=1)
@@ -4189,6 +4368,7 @@ class HermesCLI:
                 # Clear spinner only if no foreground agent owns it
                 if not self._agent_running:
                     self._spinner_text = ""
+                    self._tool_trail = []
                 if self._app:
                     self._invalidate(min_interval=0)
 
@@ -4987,6 +5167,10 @@ class HermesCLI:
             _pl = get_tool_preview_max_len()
             if _pl > 0 and len(label) > _pl:
                 label = label[:_pl - 3] + "..."
+            # Add to tool trail (keep last 5)
+            self._tool_trail.append(emoji)
+            if len(self._tool_trail) > 5:
+                self._tool_trail.pop(0)
             self._spinner_text = f"{emoji} {label}"
             self._invalidate()
 
@@ -5158,16 +5342,17 @@ class HermesCLI:
             except Exception:
                 pass
 
-            # Track consecutive no-speech cycles to avoid infinite restart loops.
-            if not submitted:
-                self._no_speech_count = getattr(self, '_no_speech_count', 0) + 1
-                if self._no_speech_count >= 3:
-                    self._voice_continuous = False
-                    self._no_speech_count = 0
-                    _cprint(f"{_DIM}No speech detected 3 times, continuous mode stopped.{_RST}")
-                    return
-            else:
+        # Track consecutive no-speech cycles to avoid infinite restart loops.
+        # (Must be after finally to avoid return-in-finally issues)
+        if not submitted:
+            self._no_speech_count = getattr(self, '_no_speech_count', 0) + 1
+            if self._no_speech_count >= 3:
+                self._voice_continuous = False
                 self._no_speech_count = 0
+                _cprint(f"{_DIM}No speech detected 3 times, continuous mode stopped.{_RST}")
+                return
+        else:
+            self._no_speech_count = 0
 
             # If no transcript was submitted but continuous mode is active,
             # restart recording so the user can keep talking.
@@ -5191,20 +5376,18 @@ class HermesCLI:
         try:
             from tools.tts_tool import text_to_speech_tool
             from tools.voice_mode import play_audio_file
-            import re
-
             # Strip markdown and non-speech content for cleaner TTS
             tts_text = text[:4000] if len(text) > 4000 else text
-            tts_text = re.sub(r'```[\s\S]*?```', ' ', tts_text)   # fenced code blocks
-            tts_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', tts_text)  # [text](url) -> text
-            tts_text = re.sub(r'https?://\S+', '', tts_text)      # URLs
-            tts_text = re.sub(r'\*\*(.+?)\*\*', r'\1', tts_text)  # bold
-            tts_text = re.sub(r'\*(.+?)\*', r'\1', tts_text)      # italic
-            tts_text = re.sub(r'`(.+?)`', r'\1', tts_text)        # inline code
-            tts_text = re.sub(r'^#+\s*', '', tts_text, flags=re.MULTILINE)  # headers
-            tts_text = re.sub(r'^\s*[-*]\s+', '', tts_text, flags=re.MULTILINE)  # list items
-            tts_text = re.sub(r'---+', '', tts_text)              # horizontal rules
-            tts_text = re.sub(r'\n{3,}', '\n\n', tts_text)        # excessive newlines
+            tts_text = _TTS_FENCED_CODE_RE.sub(' ', tts_text)
+            tts_text = _TTS_LINK_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_URL_RE.sub('', tts_text)
+            tts_text = _TTS_BOLD_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_ITALIC_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_INLINE_CODE_RE.sub(r'\1', tts_text)
+            tts_text = _TTS_HEADER_RE.sub('', tts_text)
+            tts_text = _TTS_LIST_ITEM_RE.sub('', tts_text)
+            tts_text = _TTS_HR_RE.sub('', tts_text)
+            tts_text = _TTS_EXCESSIVE_NEWLINES_RE.sub('\n\n', tts_text)
             tts_text = tts_text.strip()
             if not tts_text:
                 return
@@ -7073,12 +7256,34 @@ class HermesCLI:
 
         def get_spinner_text():
             txt = cli_ref._spinner_text
-            if not txt:
-                return []
-            return [('class:hint', f'  {txt}')]
+            trail = cli_ref._tool_trail
+            import time as _time
+            elapsed = cli_ref._agent_started_at
+            is_running = cli_ref._agent_running
+
+            parts = []
+            # Always show elapsed time when agent is running
+            if is_running and elapsed > 0:
+                secs = int(_time.monotonic() - elapsed)
+                if secs < 60:
+                    elapsed_str = f"{secs}s"
+                else:
+                    elapsed_str = f"{secs // 60}m {secs % 60}s"
+                spinner_frame_idx = int(_time.monotonic() * 10) % len(_COMMAND_SPINNER_FRAMES)
+                spinner = _COMMAND_SPINNER_FRAMES[spinner_frame_idx]
+                parts.append(('class:hint', f' {spinner} {elapsed_str}'))
+
+            if not txt and not trail:
+                return parts if parts else []
+
+            if trail:
+                parts.append(('class:hint', '  ' + ' '.join(trail)))
+            if txt:
+                parts.append(('class:hint', f'  {txt}'))
+            return parts
 
         def get_spinner_height():
-            return 1 if cli_ref._spinner_text else 0
+            return 1 if (cli_ref._spinner_text or cli_ref._tool_trail or (cli_ref._agent_running and cli_ref._agent_started_at > 0)) else 0
 
         spinner_widget = Window(
             content=FormattedTextControl(get_spinner_text),
@@ -7482,9 +7687,7 @@ class HermesCLI:
                         continue
                     
                     # Expand paste references back to full content
-                    import re as _re
-                    _paste_ref_re = _re.compile(r'\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]')
-                    paste_refs = list(_paste_ref_re.finditer(user_input)) if isinstance(user_input, str) else []
+                    paste_refs = list(_PASTE_REF_RE.finditer(user_input)) if isinstance(user_input, str) else []
                     if paste_refs:
                         def _expand_ref(m):
                             p = Path(m.group(1))
@@ -7532,6 +7735,8 @@ class HermesCLI:
                         _cprint(f"  {_DIM}📎 {n} image{'s' if n > 1 else ''} attached{_RST}")
 
                     # Regular chat - run agent
+                    import time as _time
+                    self._agent_started_at = _time.monotonic()
                     self._agent_running = True
                     app.invalidate()  # Refresh status line
 
@@ -7540,6 +7745,8 @@ class HermesCLI:
                     finally:
                         self._agent_running = False
                         self._spinner_text = ""
+                        self._agent_started_at = 0.0
+                        self._tool_trail = []
                         app.invalidate()  # Refresh status line
 
                         # Continuous voice: auto-restart recording after agent responds.
