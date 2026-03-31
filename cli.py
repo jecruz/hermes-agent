@@ -7269,7 +7269,9 @@ Rules:
                     elapsed_str = f"{secs}s"
                 else:
                     elapsed_str = f"{secs // 60}m {secs % 60}s"
-                parts.append(('class:hint', f'  ⚙️ {elapsed_str}'))
+                spinner_frame_idx = int(_time.monotonic() * 10) % len(_COMMAND_SPINNER_FRAMES)
+                spinner = _COMMAND_SPINNER_FRAMES[spinner_frame_idx]
+                parts.append(('class:hint', f' {spinner} {elapsed_str}'))
 
             if not txt and not trail:
                 return parts if parts else []
