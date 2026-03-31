@@ -1274,6 +1274,7 @@ class HermesCLI:
         self._secret_deadline = 0
         self._spinner_text: str = ""  # thinking spinner text for TUI
         self._tool_trail: list[str] = []  # completed tool calls shown as trail
+        self._agent_started_at: float = 0.0  # timestamp when agent started processing
         self._command_running = False
         self._command_status = ""
         self._attached_images: list[Path] = []
@@ -7256,9 +7257,23 @@ Rules:
         def get_spinner_text():
             txt = cli_ref._spinner_text
             trail = cli_ref._tool_trail
+            import time as _time
+            elapsed = cli_ref._agent_started_at
+            is_running = cli_ref._agent_running
+
+            parts = []
+            # Show elapsed time if agent is running but no spinner/trail yet
+            if is_running and not txt and not trail and elapsed > 0:
+                secs = int(_time.monotonic() - elapsed)
+                if secs < 60:
+                    elapsed_str = f"{secs}s"
+                else:
+                    elapsed_str = f"{secs // 60}m {secs % 60}s"
+                parts.append(('class:hint', f'  ⚙️ Thinking... {elapsed_str}'))
+                return parts
+
             if not txt and not trail:
                 return []
-            parts = []
             if trail:
                 parts.append(('class:hint', '  ' + ' '.join(trail) + '  '))
             if txt:
@@ -7266,7 +7281,7 @@ Rules:
             return parts
 
         def get_spinner_height():
-            return 1 if (cli_ref._spinner_text or cli_ref._tool_trail) else 0
+            return 1 if (cli_ref._spinner_text or cli_ref._tool_trail or (cli_ref._agent_running and cli_ref._agent_started_at > 0)) else 0
 
         spinner_widget = Window(
             content=FormattedTextControl(get_spinner_text),
@@ -7718,6 +7733,8 @@ Rules:
                         _cprint(f"  {_DIM}📎 {n} image{'s' if n > 1 else ''} attached{_RST}")
 
                     # Regular chat - run agent
+                    import time as _time
+                    self._agent_started_at = _time.monotonic()
                     self._agent_running = True
                     app.invalidate()  # Refresh status line
 
@@ -7726,6 +7743,7 @@ Rules:
                     finally:
                         self._agent_running = False
                         self._spinner_text = ""
+                        self._agent_started_at = 0.0
                         self._tool_trail = []
                         app.invalidate()  # Refresh status line
 
