@@ -4092,11 +4092,6 @@ Rules:
                 max_tokens=768,
                 messages=[{"role": "user", "content": raw_prompt}]
             )
-            # DEBUG: print raw response structure
-            import sys
-            print(f"\nDEBUG: response.content type = {type(response.content)}", file=sys.stderr)
-            for i, block in enumerate(response.content):
-                print(f"DEBUG: block[{i}] type={type(block)} repr={repr(block)[:200]}", file=sys.stderr)
             # Extract text blocks only, skip thinking and other internal blocks
             text_parts = []
             for block in response.content:
@@ -4105,16 +4100,10 @@ Rules:
                 # Only accept explicit text blocks with actual content
                 if block_type == "text" and block_text:
                     text_parts.append(block_text)
-                # Explicitly skip known non-text block types
-                elif block_type in ("thinking", "redacted_reasoning", "矿石", "ore"):
-                    pass  # Skip these
             raw_enhanced = "".join(text_parts).strip()
-            # Strip ALL ANSI escape sequences (CSI format: ESC [ ... final-byte)
-            enhanced = re.sub(r'\x1b\[[^\x1b\x1a\x07]*[A-Za-z]', '', raw_enhanced)
-            # Strip OSC sequences (ESC ]) and other escapes
-            enhanced = re.sub(r'\x1b\][^\x07]*\x07|\x1b[()][AB012]|\x1b[>=]', '', enhanced)
-            # Strip dangerous control characters that can corrupt terminal state
-            enhanced = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', enhanced)
+            # Use existing battle-tested ANSI stripper from tools.ansi_strip
+            from tools.ansi_strip import strip_ansi
+            enhanced = strip_ansi(raw_enhanced)
             if not enhanced.strip():
                 _cprint("  (X_X) Model returned an empty response — try again")
                 return
