@@ -4100,8 +4100,10 @@ Rules:
                     text_parts.append(getattr(block, "text", ""))
                 # Skip thinking blocks — they're internal, not output
             raw_enhanced = "".join(text_parts).strip()
-            # Strip ANSI escape sequences (SGR + broader patterns)
-            enhanced = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw_enhanced)
+            # Strip ALL ANSI escape sequences (CSI, SGR, OSC, etc.)
+            enhanced = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]|\x1b[>=]', '', raw_enhanced)
+            # Strip dangerous control characters that can corrupt terminal state
+            enhanced = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', enhanced)
             if not enhanced.strip():
                 _cprint("  (X_X) Model returned an empty response — try again")
                 return
@@ -4125,7 +4127,12 @@ Rules:
         self.console.print("[dim]ORIGINAL:[/dim]")
         self.console.print(f"  {raw_prompt}\n")
         self.console.print("[dim]ENHANCED:[/dim]")
-        self.console.print(f"  {enhanced}\n")
+        # Use console's built-in escaping to safely display the enhanced prompt
+        self.console.print(f"  [code]{enhanced}[/code]\n")
+        # Reset terminal to ensure clean state after any stray escape sequences
+        import sys
+        sys.stdout.write("\x1b[0m\x1b[?1049l\x1b[?1l\x1b[?3l\x1b[?4l\x1b[?5l\x1b[?7h\x1b[?8h\x1b[?25h\x1b[?2004l")
+        sys.stdout.flush()
         self.console.print("  [bold green]A[/bold green]ccept — submits enhanced prompt to agent")
         self.console.print("  [bold yellow]E[/bold yellow]dit   — opens in $EDITOR to modify first")
         self.console.print("  [bold dim]C[/bold dim]ancel  — abort\n")
@@ -5291,16 +5298,17 @@ Rules:
             except Exception:
                 pass
 
-            # Track consecutive no-speech cycles to avoid infinite restart loops.
-            if not submitted:
-                self._no_speech_count = getattr(self, '_no_speech_count', 0) + 1
-                if self._no_speech_count >= 3:
-                    self._voice_continuous = False
-                    self._no_speech_count = 0
-                    _cprint(f"{_DIM}No speech detected 3 times, continuous mode stopped.{_RST}")
-                    return
-            else:
+        # Track consecutive no-speech cycles to avoid infinite restart loops.
+        # (Must be after finally to avoid return-in-finally issues)
+        if not submitted:
+            self._no_speech_count = getattr(self, '_no_speech_count', 0) + 1
+            if self._no_speech_count >= 3:
+                self._voice_continuous = False
                 self._no_speech_count = 0
+                _cprint(f"{_DIM}No speech detected 3 times, continuous mode stopped.{_RST}")
+                return
+        else:
+            self._no_speech_count = 0
 
             # If no transcript was submitted but continuous mode is active,
             # restart recording so the user can keep talking.
