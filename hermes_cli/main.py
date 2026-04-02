@@ -246,6 +246,17 @@ def _has_any_provider_configured() -> bool:
             pass
 
 
+    # Check config.yaml — if model is a dict with an explicit provider set,
+    # the user has gone through setup (fresh installs have model as a plain
+    # string).  Also covers custom endpoints that store api_key/base_url in
+    # config rather than .env.
+    if isinstance(model_cfg, dict):
+        cfg_provider = (model_cfg.get("provider") or "").strip()
+        cfg_base_url = (model_cfg.get("base_url") or "").strip()
+        cfg_api_key = (model_cfg.get("api_key") or "").strip()
+        if cfg_provider or cfg_base_url or cfg_api_key:
+            return True
+
     # Check for Claude Code OAuth credentials (~/.claude/.credentials.json)
     # Only count these if Hermes has been explicitly configured — Claude Code
     # being installed doesn't mean the user wants Hermes to use their tokens.
@@ -632,6 +643,7 @@ def cmd_chat(args):
         "worktree": getattr(args, "worktree", False),
         "checkpoints": getattr(args, "checkpoints", False),
         "pass_session_id": getattr(args, "pass_session_id", False),
+        "max_turns": getattr(args, "max_turns", None),
     }
     # Filter out None values
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
@@ -846,10 +858,10 @@ def cmd_setup(args):
 def cmd_model(args):
     """Select default model — starts with provider selection, then model picker."""
     _require_tty("model")
-    select_provider_and_model()
+    select_provider_and_model(args=args)
 
 
-def select_provider_and_model():
+def select_provider_and_model(args=None):
     """Core provider selection + model picking logic.
 
     Shared by ``cmd_model`` (``hermes model``) and the setup wizard
@@ -994,7 +1006,7 @@ def select_provider_and_model():
     if selected_provider == "openrouter":
         _model_flow_openrouter(config, current_model)
     elif selected_provider == "nous":
-        _model_flow_nous(config, current_model)
+        _model_flow_nous(config, current_model, args=args)
     elif selected_provider == "openai-codex":
         _model_flow_openai_codex(config, current_model)
     elif selected_provider == "copilot-acp":
@@ -1100,7 +1112,7 @@ def _model_flow_openrouter(config, current_model=""):
         print("No change.")
 
 
-def _model_flow_nous(config, current_model=""):
+def _model_flow_nous(config, current_model="", args=None):
     """Nous Portal provider: ensure logged in, then pick model."""
     from hermes_cli.auth import (
         get_provider_auth_state, _prompt_model_selection, _save_model_choice,
@@ -1108,7 +1120,11 @@ def _model_flow_nous(config, current_model=""):
         fetch_nous_models, AuthError, format_auth_error,
         _login_nous, PROVIDER_REGISTRY,
     )
-    from hermes_cli.config import get_env_value, save_env_value
+    from hermes_cli.config import get_env_value, save_config, save_env_value
+    from hermes_cli.nous_subscription import (
+        apply_nous_provider_defaults,
+        get_nous_subscription_explainer_lines,
+    )
     import argparse
 
     state = get_provider_auth_state("nous")
@@ -1117,11 +1133,19 @@ def _model_flow_nous(config, current_model=""):
         print()
         try:
             mock_args = argparse.Namespace(
-                portal_url=None, inference_url=None, client_id=None,
-                scope=None, no_browser=False, timeout=15.0,
-                ca_bundle=None, insecure=False,
+                portal_url=getattr(args, "portal_url", None),
+                inference_url=getattr(args, "inference_url", None),
+                client_id=getattr(args, "client_id", None),
+                scope=getattr(args, "scope", None),
+                no_browser=bool(getattr(args, "no_browser", False)),
+                timeout=getattr(args, "timeout", None) or 15.0,
+                ca_bundle=getattr(args, "ca_bundle", None),
+                insecure=bool(getattr(args, "insecure", False)),
             )
             _login_nous(mock_args, PROVIDER_REGISTRY["nous"])
+            print()
+            for line in get_nous_subscription_explainer_lines():
+                print(line)
         except SystemExit:
             print("Login cancelled or failed.")
             return
@@ -1170,7 +1194,36 @@ def _model_flow_nous(config, current_model=""):
         # Reactivate Nous as the provider and update config
         inference_url = creds.get("base_url", "")
         _update_config_for_provider("nous", inference_url)
+        current_model_cfg = config.get("model")
+        if isinstance(current_model_cfg, dict):
+            model_cfg = dict(current_model_cfg)
+        elif isinstance(current_model_cfg, str) and current_model_cfg.strip():
+            model_cfg = {"default": current_model_cfg.strip()}
+        else:
+            model_cfg = {}
+        model_cfg["provider"] = "nous"
+        model_cfg["default"] = selected
+        if inference_url and inference_url.strip():
+            model_cfg["base_url"] = inference_url.rstrip("/")
+        else:
+            model_cfg.pop("base_url", None)
+        config["model"] = model_cfg
+        # Clear any custom endpoint that might conflict
+        if get_env_value("OPENAI_BASE_URL"):
+            save_env_value("OPENAI_BASE_URL", "")
+            save_env_value("OPENAI_API_KEY", "")
+        changed_defaults = apply_nous_provider_defaults(config)
+        save_config(config)
         print(f"Default model set to: {selected} (via Nous Portal)")
+        if "tts" in changed_defaults:
+            print("TTS provider set to: OpenAI TTS via your Nous subscription")
+        else:
+            current_tts = str(config.get("tts", {}).get("provider") or "edge")
+            if current_tts.lower() not in {"", "edge"}:
+                print(f"Keeping your existing TTS provider: {current_tts}")
+        print()
+        for line in get_nous_subscription_explainer_lines():
+            print(line)
     else:
         print("No change.")
 
@@ -2633,24 +2686,15 @@ def _update_via_zip(args):
     if removed:
         print(f"  ✓ Cleared {removed} stale __pycache__ director{'y' if removed == 1 else 'ies'}")
     
-    # Reinstall Python dependencies (try .[all] first for optional extras,
-    # fall back to . if extras fail — mirrors the install script behavior)
+    # Reinstall Python dependencies. Prefer .[all], but if one optional extra
+    # breaks on this machine, keep base deps and reinstall the remaining extras
+    # individually so update does not silently strip working capabilities.
     print("→ Updating Python dependencies...")
     import subprocess
     uv_bin = shutil.which("uv")
     if uv_bin:
         uv_env = {**os.environ, "VIRTUAL_ENV": str(PROJECT_ROOT / "venv")}
-        try:
-            subprocess.run(
-                [uv_bin, "pip", "install", "-e", ".[all]", "--quiet"],
-                cwd=PROJECT_ROOT, check=True, env=uv_env,
-            )
-        except subprocess.CalledProcessError:
-            print("  ⚠ Optional extras failed, installing base dependencies...")
-            subprocess.run(
-                [uv_bin, "pip", "install", "-e", ".", "--quiet"],
-                cwd=PROJECT_ROOT, check=True, env=uv_env,
-            )
+        _install_python_dependencies_with_optional_fallback([uv_bin, "pip"], env=uv_env)
     else:
         # Use sys.executable to explicitly call the venv's pip module,
         # avoiding PEP 668 'externally-managed-environment' errors on Debian/Ubuntu.
@@ -2665,11 +2709,7 @@ def _update_via_zip(args):
                 cwd=PROJECT_ROOT,
                 check=True,
             )
-        try:
-            subprocess.run(pip_cmd + ["install", "-e", ".[all]", "--quiet"], cwd=PROJECT_ROOT, check=True)
-        except subprocess.CalledProcessError:
-            print("  ⚠ Optional extras failed, installing base dependencies...")
-            subprocess.run(pip_cmd + ["install", "-e", ".", "--quiet"], cwd=PROJECT_ROOT, check=True)
+        _install_python_dependencies_with_optional_fallback(pip_cmd)
     
     # Sync skills
     try:
@@ -2858,16 +2898,107 @@ def _restore_stashed_changes(
     return True
 
 def _invalidate_update_cache():
-    """Delete the update-check cache so ``hermes --version`` doesn't
-    report a stale "commits behind" count after a successful update."""
+    """Delete the update-check cache for ALL profiles so no banner
+    reports a stale "commits behind" count after a successful update.
+
+    The git repo is shared across profiles — when one profile runs
+    ``hermes update``, every profile is now current.
+    """
+    homes = []
+    # Default profile home
+    default_home = Path.home() / ".hermes"
+    homes.append(default_home)
+    # Named profiles under ~/.hermes/profiles/
+    profiles_root = default_home / "profiles"
+    if profiles_root.is_dir():
+        for entry in profiles_root.iterdir():
+            if entry.is_dir():
+                homes.append(entry)
+    for home in homes:
+        try:
+            cache_file = home / ".update_check"
+            if cache_file.exists():
+                cache_file.unlink()
+        except Exception:
+            pass
+
+
+def _load_installable_optional_extras() -> list[str]:
+    """Return the optional extras referenced by the ``all`` group.
+
+    Only extras that ``[all]`` actually pulls in are retried individually.
+    Extras outside ``[all]`` (e.g. ``rl``, ``yc-bench``) are intentionally
+    excluded — they have heavy or platform-specific deps that most users
+    never installed.
+    """
     try:
-        cache_file = Path(os.getenv(
-            "HERMES_HOME", Path.home() / ".hermes"
-        )) / ".update_check"
-        if cache_file.exists():
-            cache_file.unlink()
+        import tomllib
+        with (PROJECT_ROOT / "pyproject.toml").open("rb") as handle:
+            project = tomllib.load(handle).get("project", {})
     except Exception:
-        pass
+        return []
+
+    optional_deps = project.get("optional-dependencies", {})
+    if not isinstance(optional_deps, dict):
+        return []
+
+    # Parse the [all] group to find which extras it references.
+    # Entries look like "hermes-agent[matrix]" or "package-name[extra]".
+    all_refs = optional_deps.get("all", [])
+    referenced: list[str] = []
+    for ref in all_refs:
+        if "[" in ref and "]" in ref:
+            name = ref.split("[", 1)[1].split("]", 1)[0]
+            if name in optional_deps:
+                referenced.append(name)
+
+    return referenced
+
+
+
+def _install_python_dependencies_with_optional_fallback(
+    install_cmd_prefix: list[str],
+    *,
+    env: dict[str, str] | None = None,
+) -> None:
+    """Install base deps plus as many optional extras as the environment supports."""
+    try:
+        subprocess.run(
+            install_cmd_prefix + ["install", "-e", ".[all]", "--quiet"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            env=env,
+        )
+        return
+    except subprocess.CalledProcessError:
+        print("  ⚠ Optional extras failed, reinstalling base dependencies and retrying extras individually...")
+
+    subprocess.run(
+        install_cmd_prefix + ["install", "-e", ".", "--quiet"],
+        cwd=PROJECT_ROOT,
+        check=True,
+        env=env,
+    )
+
+    failed_extras: list[str] = []
+    installed_extras: list[str] = []
+    for extra in _load_installable_optional_extras():
+        try:
+            subprocess.run(
+                install_cmd_prefix + ["install", "-e", f".[{extra}]", "--quiet"],
+                cwd=PROJECT_ROOT,
+                check=True,
+                env=env,
+            )
+            installed_extras.append(extra)
+        except subprocess.CalledProcessError:
+            failed_extras.append(extra)
+
+    if installed_extras:
+        print(f"  ✓ Reinstalled optional extras individually: {', '.join(installed_extras)}")
+    if failed_extras:
+        print(f"  ⚠ Skipped optional extras that still failed: {', '.join(failed_extras)}")
+
 
 def cmd_update(args):
     """Update Hermes Agent to the latest version."""
@@ -3043,23 +3174,14 @@ def cmd_update(args):
         if removed:
             print(f"  ✓ Cleared {removed} stale __pycache__ director{'y' if removed == 1 else 'ies'}")
         
-        # Reinstall Python dependencies (try .[all] first for optional extras,
-        # fall back to . if extras fail — mirrors the install script behavior)
+        # Reinstall Python dependencies. Prefer .[all], but if one optional extra
+        # breaks on this machine, keep base deps and reinstall the remaining extras
+        # individually so update does not silently strip working capabilities.
         print("→ Updating Python dependencies...")
         uv_bin = shutil.which("uv")
         if uv_bin:
             uv_env = {**os.environ, "VIRTUAL_ENV": str(PROJECT_ROOT / "venv")}
-            try:
-                subprocess.run(
-                    [uv_bin, "pip", "install", "-e", ".[all]", "--quiet"],
-                    cwd=PROJECT_ROOT, check=True, env=uv_env,
-                )
-            except subprocess.CalledProcessError:
-                print("  ⚠ Optional extras failed, installing base dependencies...")
-                subprocess.run(
-                    [uv_bin, "pip", "install", "-e", ".", "--quiet"],
-                    cwd=PROJECT_ROOT, check=True, env=uv_env,
-                )
+            _install_python_dependencies_with_optional_fallback([uv_bin, "pip"], env=uv_env)
         else:
             # Use sys.executable to explicitly call the venv's pip module,
             # avoiding PEP 668 'externally-managed-environment' errors on Debian/Ubuntu.
@@ -3074,11 +3196,7 @@ def cmd_update(args):
                     cwd=PROJECT_ROOT,
                     check=True,
                 )
-            try:
-                subprocess.run(pip_cmd + ["install", "-e", ".[all]", "--quiet"], cwd=PROJECT_ROOT, check=True)
-            except subprocess.CalledProcessError:
-                print("  ⚠ Optional extras failed, installing base dependencies...")
-                subprocess.run(pip_cmd + ["install", "-e", ".", "--quiet"], cwd=PROJECT_ROOT, check=True)
+            _install_python_dependencies_with_optional_fallback(pip_cmd)
         
         # Check for Node.js deps
         if (PROJECT_ROOT / "package.json").exists():
@@ -3798,6 +3916,13 @@ For more help on a command:
         help="Enable filesystem checkpoints before destructive file operations (use /rollback to restore)"
     )
     chat_parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Maximum tool-calling iterations per conversation turn (default: 90, or agent.max_turns in config)"
+    )
+    chat_parser.add_argument(
         "--yolo",
         action="store_true",
         default=False,
@@ -3824,6 +3949,44 @@ For more help on a command:
         help="Select default model and provider",
         description="Interactively select your inference provider and default model"
     )
+    model_parser.add_argument(
+        "--portal-url",
+        help="Portal base URL for Nous login (default: production portal)"
+    )
+    model_parser.add_argument(
+        "--inference-url",
+        help="Inference API base URL for Nous login (default: production inference API)"
+    )
+    model_parser.add_argument(
+        "--client-id",
+        default=None,
+        help="OAuth client id to use for Nous login (default: hermes-cli)"
+    )
+    model_parser.add_argument(
+        "--scope",
+        default=None,
+        help="OAuth scope to request for Nous login"
+    )
+    model_parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not attempt to open the browser automatically during Nous login"
+    )
+    model_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=15.0,
+        help="HTTP request timeout in seconds for Nous login (default: 15)"
+    )
+    model_parser.add_argument(
+        "--ca-bundle",
+        help="Path to CA bundle PEM file for Nous TLS verification"
+    )
+    model_parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable TLS verification for Nous login (testing only)"
+    )
     model_parser.set_defaults(func=cmd_model)
 
     # =========================================================================
@@ -3838,7 +4001,10 @@ For more help on a command:
     
     # gateway run (default)
     gateway_run = gateway_subparsers.add_parser("run", help="Run gateway in foreground")
-    gateway_run.add_argument("-v", "--verbose", action="store_true")
+    gateway_run.add_argument("-v", "--verbose", action="count", default=0,
+                             help="Increase stderr log verbosity (-v=INFO, -vv=DEBUG)")
+    gateway_run.add_argument("-q", "--quiet", action="store_true",
+                             help="Suppress all stderr log output")
     gateway_run.add_argument("--replace", action="store_true",
                              help="Replace any existing gateway instance (useful for systemd)")
     
