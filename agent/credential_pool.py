@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 import os
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, fields, field, replace
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from hermes_constants import OPENROUTER_BASE_URL
@@ -103,11 +103,7 @@ class PooledCredential:
     agent_key: Optional[str] = None
     agent_key_expires_at: Optional[str] = None
     request_count: int = 0
-    extra: Dict[str, Any] = None  # type: ignore[assignment]
-
-    def __post_init__(self):
-        if self.extra is None:
-            self.extra = {}
+    extra: Dict[str, Any] = field(default_factory=dict)
 
     def __getattr__(self, name: str):
         if name in _EXTRA_KEYS:
