@@ -5631,34 +5631,33 @@ Rules:
 
             if wav_path is None:
                 _cprint(f"{_DIM}No speech detected.{_RST}")
-                return
-
-            # _voice_processing is already True (set atomically above)
-            if hasattr(self, '_app') and self._app:
-                self._app.invalidate()
-            _cprint(f"{_DIM}Transcribing...{_RST}")
-
-            # Get STT model from config
-            stt_model = None
-            try:
-                from hermes_cli.config import load_config
-                stt_config = load_config().get("stt", {})
-                stt_model = stt_config.get("model")
-            except Exception:
-                pass
-
-            from tools.voice_mode import transcribe_recording
-            result = transcribe_recording(wav_path, model=stt_model)
-
-            if result.get("success") and result.get("transcript", "").strip():
-                transcript = result["transcript"].strip()
-                self._pending_input.put(transcript)
-                submitted = True
-            elif result.get("success"):
-                _cprint(f"{_DIM}No speech detected.{_RST}")
             else:
-                error = result.get("error", "Unknown error")
-                _cprint(f"\n{_DIM}Transcription failed: {error}{_RST}")
+                # _voice_processing is already True (set atomically above)
+                if hasattr(self, '_app') and self._app:
+                    self._app.invalidate()
+                _cprint(f"{_DIM}Transcribing...{_RST}")
+
+                # Get STT model from config
+                stt_model = None
+                try:
+                    from hermes_cli.config import load_config
+                    stt_config = load_config().get("stt", {})
+                    stt_model = stt_config.get("model")
+                except Exception:
+                    pass
+
+                from tools.voice_mode import transcribe_recording
+                result = transcribe_recording(wav_path, model=stt_model)
+
+                if result.get("success") and result.get("transcript", "").strip():
+                    transcript = result["transcript"].strip()
+                    self._pending_input.put(transcript)
+                    submitted = True
+                elif result.get("success"):
+                    _cprint(f"{_DIM}No speech detected.{_RST}")
+                else:
+                    error = result.get("error", "Unknown error")
+                    _cprint(f"\n{_DIM}Transcription failed: {error}{_RST}")
 
         except Exception as e:
             _cprint(f"\n{_DIM}Voice processing error: {e}{_RST}")
@@ -5683,14 +5682,8 @@ Rules:
                 self._no_speech_count = 0
                 _cprint(f"{_DIM}No speech detected 3 times, continuous mode stopped.{_RST}")
                 return
-        else:
-            self._no_speech_count = 0
-
-            # If no transcript was submitted but continuous mode is active,
-            # restart recording so the user can keep talking.
-            # (When transcript IS submitted, process_loop handles restart
-            # after chat() completes.)
-            if self._voice_continuous and not submitted and not self._voice_recording:
+            # In continuous mode, restart immediately when no audio was captured.
+            if self._voice_continuous and not self._voice_recording:
                 def _restart_recording():
                     try:
                         self._voice_start_recording()
@@ -5699,6 +5692,11 @@ Rules:
                     except Exception as e:
                         _cprint(f"{_DIM}Voice auto-restart failed: {e}{_RST}")
                 threading.Thread(target=_restart_recording, daemon=True).start()
+        else:
+            self._no_speech_count = 0
+
+            # If transcript was submitted, process_loop handles restart
+            # after chat() completes.
 
     def _voice_speak_response(self, text: str):
         """Speak the agent's response aloud using TTS (runs in background thread)."""
