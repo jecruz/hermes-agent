@@ -218,6 +218,13 @@ GOOGLE_MODEL_OPERATIONAL_GUIDANCE = (
 # message representation stays consistent ("system" everywhere).
 DEVELOPER_ROLE_MODELS = ("gpt-5", "codex")
 
+# Model name substrings that should use the 'developer' role instead of
+# 'system' for the system prompt.  OpenAI's newer models (GPT-5, Codex)
+# give stronger instruction-following weight to the 'developer' role.
+# The swap happens at the API boundary in _build_api_kwargs() so internal
+# message representation stays consistent ("system" everywhere).
+DEVELOPER_ROLE_MODELS = ("gpt-5", "codex")
+
 PLATFORM_HINTS = {
     "whatsapp": (
         "You are on a text messaging communication platform, WhatsApp. "
