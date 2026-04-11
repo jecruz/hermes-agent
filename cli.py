@@ -2032,6 +2032,7 @@ class HermesCLI:
         self._secret_state = None
         self._secret_deadline = 0
         self._spinner_text: str = ""  # thinking spinner text for TUI
+        self._tool_trail: list[str] = []  # completed tool calls shown as trail
         self._tool_start_time: float = 0.0  # monotonic timestamp when current tool started (for live elapsed)
         self._pending_tool_info: dict = {}  # function_name -> list of (preview, args) for stacked scrollback
         self._last_scrollback_tool: str = ""  # last tool name printed to scrollback (for "new" dedup)
@@ -6380,6 +6381,7 @@ class HermesCLI:
                 # Clear spinner only if no foreground agent owns it
                 if not self._agent_running:
                     self._spinner_text = ""
+                    self._tool_trail = []
                 if self._app:
                     self._invalidate(min_interval=0)
 
@@ -7360,6 +7362,10 @@ class HermesCLI:
             _pl = get_tool_preview_max_len()
             if _pl > 0 and len(label) > _pl:
                 label = label[:_pl - 3] + "..."
+            # Add to tool trail (keep last 5)
+            self._tool_trail.append(emoji)
+            if len(self._tool_trail) > 5:
+                self._tool_trail.pop(0)
             self._spinner_text = f"{emoji} {label}"
             self._tool_start_time = time.monotonic()
             # Store args for stacked scrollback line on completion
@@ -9894,7 +9900,7 @@ class HermesCLI:
             return [('class:hint', spinner_line)]
 
         def get_spinner_height():
-            return cli_ref._spinner_widget_height()
+            return 1 if (cli_ref._spinner_text or cli_ref._tool_trail) else 0
 
         spinner_widget = Window(
             content=FormattedTextControl(get_spinner_text),
@@ -10555,6 +10561,7 @@ class HermesCLI:
                     finally:
                         self._agent_running = False
                         self._spinner_text = ""
+                        self._tool_trail = []
                         self._tool_start_time = 0.0
                         self._pending_tool_info.clear()
                         self._last_scrollback_tool = ""
