@@ -506,8 +506,12 @@ class CLIStatusBarMixin:
     def _spinner_widget_height(self, width: Optional[int] = None) -> int:
         """Visible height of the spinner/status line above the status bar."""
         spinner_line = self._render_spinner_text()
-        if not spinner_line or self._use_minimal_tui_chrome(width=width):
+        if self._use_minimal_tui_chrome(width=width):
             return 0
+        if not spinner_line:
+            # Tool trail can outlive spinner_text's own clear ordering, so it
+            # still needs to reserve its line.
+            return 1 if self._tool_trail else 0
         width = width or self._get_tui_terminal_width()
         if width and width > 10:
             return max(1, -(-self._status_bar_display_width(spinner_line) // width))
