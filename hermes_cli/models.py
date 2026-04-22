@@ -1653,7 +1653,8 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
         if live:
             return live
     if normalized == "ollama-cloud":
-        live = fetch_ollama_cloud_models(force_refresh=force_refresh)
+        # Always probe live - models.dev cache is stale for frequently-updated local servers
+        live = fetch_ollama_cloud_models(force_refresh=True)
         if live:
             return live
     if normalized == "custom":
@@ -1669,12 +1670,18 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             if live:
                 return live
     # Dynamic model discovery for local API-key providers
-    if normalized in ("lmstusio", "tokenoverdrive"):
+    if normalized in ("lmstusio", "tokenoverdrive", "ollama"):
         try:
             from hermes_cli.auth import PROVIDER_REGISTRY
             pconfig = PROVIDER_REGISTRY.get(normalized)
+            base_url = None
             if pconfig and pconfig.inference_base_url:
-                live = fetch_api_models("", pconfig.inference_base_url)
+                base_url = pconfig.inference_base_url
+            elif normalized == "ollama":
+                # Bare ollama defaults to localhost:11434
+                base_url = "http://127.0.0.1:11434/v1"
+            if base_url:
+                live = fetch_api_models("", base_url)
                 if live:
                     return live
         except Exception:
