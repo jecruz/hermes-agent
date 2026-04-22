@@ -1668,6 +1668,17 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             live = fetch_api_models(api_key, base_url)
             if live:
                 return live
+    # Dynamic model discovery for local API-key providers
+    if normalized in ("lmstusio", "tokenoverdrive"):
+        try:
+            from hermes_cli.auth import PROVIDER_REGISTRY
+            pconfig = PROVIDER_REGISTRY.get(normalized)
+            if pconfig and pconfig.inference_base_url:
+                live = fetch_api_models("", pconfig.inference_base_url)
+                if live:
+                    return live
+        except Exception:
+            pass
     return list(_PROVIDER_MODELS.get(normalized, []))
 
 
