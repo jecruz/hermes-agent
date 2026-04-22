@@ -249,7 +249,10 @@ _REGISTRY_ROWS: Tuple[Any, ...] = (
     # No static inference_base_url: Vertex's endpoint is computed per request from project_id +
     # region (agent/vertex_adapter.py build_vertex_base_url), not a fixed host.
     ("vertex", "Google Vertex AI", "", (), "", "vertex"),
-    ("azure-foundry", "Azure Foundry", "", ("AZURE_FOUNDRY_API_KEY",), "AZURE_FOUNDRY_BASE_URL"))
+    ("azure-foundry", "Azure Foundry", "", ("AZURE_FOUNDRY_API_KEY",), "AZURE_FOUNDRY_BASE_URL"),
+    # Local, key-less OpenAI-compat servers — models discovered dynamically via /models.
+    ("lmstusio", "LM Studio", "http://127.0.0.1:4521/v1", (), "LMSTUSIO_BASE_URL"),
+    ("tokenoverdrive", "TokenOverdrive", "http://127.0.0.1:8787/v1", (), "TOKENOVERDRIVE_BASE_URL"))
 PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
     p.id: p for p in (r if isinstance(r, ProviderConfig) else _api_key_provider(*r) for r in _REGISTRY_ROWS)
 }
