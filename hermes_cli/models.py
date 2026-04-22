@@ -356,6 +356,10 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "us.meta.llama4-maverick-17b-instruct-v1:0",
         "us.meta.llama4-scout-17b-instruct-v1:0",
     ],
+    # LM Studio (local) — models discovered dynamically via /models endpoint
+    "lmstusio": [],
+    # TokenOverdrive (local) — models discovered dynamically via /models endpoint
+    "tokenoverdrive": [],
 }
 
 # Vercel AI Gateway: derive the bare-model-id catalog from the curated
@@ -713,6 +717,8 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("opencode-zen",   "OpenCode Zen",             "OpenCode Zen (35+ curated models, pay-as-you-go)"),
     ProviderEntry("opencode-go",    "OpenCode Go",              "OpenCode Go (open models, $10/month subscription)"),
     ProviderEntry("bedrock",        "AWS Bedrock",              "AWS Bedrock (Claude, Nova, Llama, DeepSeek — IAM or API key)"),
+    ProviderEntry("lmstusio",      "LM Studio",                "LM Studio (local models via LM Studio AI server)"),
+    ProviderEntry("tokenoverdrive", "TokenOverdrive",           "TokenOverdrive (local KV cache-accelerated models)"),
 ]
 
 # Derived dicts — used throughout the codebase
@@ -782,6 +788,11 @@ _PROVIDER_ALIASES = {
     "nemotron": "nvidia",
     "ollama": "custom",  # bare "ollama" = local; use "ollama-cloud" for cloud
     "ollama_cloud": "ollama-cloud",
+    "lmstudio": "lmstusio",  # lmstudio (no 'i') → lmstusio provider
+    "lm-studio": "lmstusio",
+    "lm_studio": "lmstusio",
+    "token-overdrive": "tokenoverdrive",
+    "token_overdrive": "tokenoverdrive",
 }
 
 

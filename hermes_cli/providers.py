@@ -163,6 +163,14 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
         transport="openai_chat",
         base_url_env_var="OLLAMA_BASE_URL",
     ),
+    "lmstusio": HermesOverlay(
+        transport="openai_chat",
+        base_url_env_var="LMSTUSIO_BASE_URL",
+    ),
+    "tokenoverdrive": HermesOverlay(
+        transport="openai_chat",
+        base_url_env_var="TOKENOVERDRIVE_BASE_URL",
+    ),
 }
 
 
@@ -285,9 +293,9 @@ ALIASES: Dict[str, str] = {
     "arceeai": "arcee",
 
     # Local server aliases → virtual "local" concept (resolved via user config)
-    "lmstudio": "lmstudio",
-    "lm-studio": "lmstudio",
-    "lm_studio": "lmstudio",
+    "lmstudio": "lmstusio",  # lmstudio (no 'i') → lmstusio provider
+    "lm-studio": "lmstusio",
+    "lm_studio": "lmstusio",
     "ollama": "custom",  # bare "ollama" = local; use "ollama-cloud" for cloud
     "vllm": "local",
     "llamacpp": "local",

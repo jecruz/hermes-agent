@@ -323,6 +323,22 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         api_key_env_vars=(),
         base_url_env_var="BEDROCK_BASE_URL",
     ),
+    "lmstusio": ProviderConfig(
+        id="lmstusio",
+        name="LM Studio",
+        auth_type="api_key",
+        inference_base_url="http://127.0.0.1:4521/v1",
+        api_key_env_vars=(),
+        base_url_env_var="LMSTUSIO_BASE_URL",
+    ),
+    "tokenoverdrive": ProviderConfig(
+        id="tokenoverdrive",
+        name="TokenOverdrive",
+        auth_type="api_key",
+        inference_base_url="http://127.0.0.1:8787/v1",
+        api_key_env_vars=(),
+        base_url_env_var="TOKENOVERDRIVE_BASE_URL",
+    ),
 }
 
 
