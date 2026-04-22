@@ -1499,6 +1499,19 @@ def _azure_foundry_catalog(normalized: str, force_refresh: bool) -> Optional[lis
         return None
 
 
+def _keyless_local_catalog(normalized: str, force_refresh: bool) -> Optional[list[str]]:
+    """Live /v1/models for a keyless local server (LM Studio, TokenOverdrive); None on any miss."""
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+
+        pconfig = PROVIDER_REGISTRY.get(normalized)
+        if pconfig and pconfig.inference_base_url:
+            return fetch_api_models("", pconfig.inference_base_url) or None
+        return None
+    except Exception:
+        return None
+
+
 # Per-provider catalog sources tried before the generic profile fetch. A fetcher returning None
 # falls through to the profile/curated path; a list is returned as-is (even empty).
 _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
@@ -1519,7 +1532,9 @@ _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
     "openai-api": _openai_catalog,
     "custom": _custom_catalog,
     "bedrock": _bedrock_catalog,
-    "azure-foundry": _azure_foundry_catalog}
+    "azure-foundry": _azure_foundry_catalog,
+    "lmstusio": _keyless_local_catalog,
+    "tokenoverdrive": _keyless_local_catalog}
 
 
 # ``-free`` slugs the relay still LISTS but no longer serves: the Go-only twin (``ox-alpha-free``)
