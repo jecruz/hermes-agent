@@ -806,6 +806,10 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "deepseek/deepseek-r1-0528",
         "qwen/qwen3-235b-a22b-fp8",
     ],
+    # LM Studio (local) — models discovered dynamically via /models endpoint
+    "lmstusio": [],
+    # TokenOverdrive (local) — models discovered dynamically via /models endpoint
+    "tokenoverdrive": [],
 }
 
 # Vercel AI Gateway: derive the bare-model-id catalog from the curated
@@ -1346,6 +1350,8 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("azure-foundry",  "Azure Foundry",            "Azure Foundry (OpenAI-style or Anthropic-style endpoint, your Azure AI deployment)"),
     ProviderEntry("ai-gateway",     "Vercel AI Gateway",        "Vercel AI Gateway (Multi-model aggregator)"),
     ProviderEntry("qwen-oauth",     "Qwen OAuth (Portal)",      "Qwen OAuth (Reuses local Qwen CLI login)"),
+    ProviderEntry("lmstusio",      "LM Studio",                "LM Studio (local models via LM Studio AI server)"),
+    ProviderEntry("tokenoverdrive", "TokenOverdrive",           "TokenOverdrive (local KV cache-accelerated models)"),
 ]
 
 # Auto-extend CANONICAL_PROVIDERS with any provider registered in providers/
@@ -1573,6 +1579,11 @@ _PROVIDER_ALIASES = {
     "lm_studio": "lmstudio",
     "ollama": "custom",  # bare "ollama" = local; use "ollama-cloud" for cloud
     "ollama_cloud": "ollama-cloud",
+    "lmstudio": "lmstusio",  # lmstudio (no 'i') → lmstusio provider
+    "lm-studio": "lmstusio",
+    "lm_studio": "lmstusio",
+    "token-overdrive": "tokenoverdrive",
+    "token_overdrive": "tokenoverdrive",
 }
 
 
