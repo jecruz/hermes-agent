@@ -307,6 +307,10 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     ],
     # Bare ids derived from the picker snapshot so both stay in sync.
     "ai-gateway": [mid for mid, _ in VERCEL_AI_GATEWAY_MODELS],
+    # LM Studio (local) — models discovered dynamically via /models endpoint
+    "lmstusio": [],
+    # TokenOverdrive (local) — models discovered dynamically via /models endpoint
+    "tokenoverdrive": [],
 }
 
 
@@ -362,6 +366,8 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [ProviderEntry(*row) for row in (
     ("azure-foundry", "Azure Foundry", "Azure Foundry (OpenAI-style or Anthropic-style endpoint, your Azure AI deployment)"),
     ("ai-gateway", "Vercel AI Gateway", "Vercel AI Gateway (Multi-model aggregator)"),
     ("qwen-oauth", "Qwen OAuth (Portal)", "Qwen OAuth (Reuses local Qwen CLI login)"),
+    ("lmstusio", "LM Studio", "LM Studio (local models via LM Studio AI server)"),
+    ("tokenoverdrive", "TokenOverdrive", "TokenOverdrive (local KV cache-accelerated models)"),
 )]
 
 
@@ -530,6 +536,10 @@ _PROVIDER_ALIASES = dict((
     # aliases stay unmapped: they are the managed local runtime's picker id, and the model
     # validator must reach its staged-library branch before the custom one.
     ("local", "custom"), ("vllm", "custom"),
+    # Override upstream's self-mapped lmstudio aliases above: this fork's "lmstusio" provider
+    # targets the user's actual remote LM Studio server, not upstream's local-desktop-app default.
+    ("lmstudio", "lmstusio"), ("lm-studio", "lmstusio"), ("lm_studio", "lmstusio"),
+    ("token-overdrive", "tokenoverdrive"), ("token_overdrive", "tokenoverdrive"),
 ))
 
 
