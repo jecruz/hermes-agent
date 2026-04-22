@@ -4476,6 +4476,21 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             force_refresh=force_refresh
         ) or list(_PROVIDER_MODELS.get(normalized, []))
 
+    # Local key-less servers (LM Studio, TokenOverdrive) expose /v1/models
+    # but the generic api-key live-fetch block below gates on a non-empty
+    # api_key, which these providers never have — so it would silently skip
+    # live discovery for them. Early-return here, same pattern as bedrock.
+    if normalized in ("lmstusio", "tokenoverdrive"):
+        try:
+            from hermes_cli.auth import PROVIDER_REGISTRY
+            pconfig = PROVIDER_REGISTRY.get(normalized)
+            if pconfig and pconfig.inference_base_url:
+                live = fetch_api_models("", pconfig.inference_base_url)
+                if live:
+                    return live
+        except Exception:
+            pass
+
     # ── Profile-based generic live fetch (all simple api-key providers) ──
     # Handles any provider registered in providers/ with auth_type="api_key".
     # Replaces per-provider copy-paste blocks (stepfun, gmi, zai, etc.).
