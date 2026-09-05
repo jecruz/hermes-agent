@@ -91,6 +91,7 @@ HERMES_OVERLAYS: dict[str, HermesOverlay] = {
     "vertex": HermesOverlay(auth_type="vertex"),
     "lmstusio": HermesOverlay(base_url_env_var="LMSTUSIO_BASE_URL"),
     "tokenoverdrive": HermesOverlay(base_url_env_var="TOKENOVERDRIVE_BASE_URL"),
+    "llmdynamix": HermesOverlay(base_url_env_var="LLMDYNAMIX_BASE_URL"),
 }
 
 
@@ -141,6 +142,7 @@ _ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
     # targets the user's actual remote LM Studio server, not upstream's local-desktop-app default.
     "lmstusio": ("lmstudio", "lm-studio", "lm_studio"),
     "tokenoverdrive": ("token-overdrive", "token_overdrive"),
+    "llmdynamix": ("llm-dynamix", "llm_dynamix", "dynamix"),
 }
 ALIASES: dict[str, str] = {alias: canon for canon, aliases in _ALIAS_GROUPS.items() for alias in aliases}
 
@@ -152,7 +154,7 @@ _LABEL_OVERRIDES: dict[str, str] = {
     "copilot-acp": "GitHub Copilot ACP", "stepfun": "StepFun Step Plan", "xiaomi": "Xiaomi MiMo", "gmi": "GMI Cloud",
     "upstage": "Upstage Solar", "actual": "Actual Computer", "tencent-tokenhub": "Tencent TokenHub",
     "nebius-token-factory": "Nebius Token Factory", "tencent-tokenplan": "Tencent TokenPlan", "lmstudio": "LM Studio",
-    "lmstusio": "LM Studio", "tokenoverdrive": "TokenOverdrive",
+    "lmstusio": "LM Studio", "tokenoverdrive": "TokenOverdrive", "llmdynamix": "LLM Dynamix",
     "custom": "Custom endpoint", "local": "Local endpoint",
     "bedrock": "AWS Bedrock", "vertex": "Google Vertex AI", "ollama-cloud": "Ollama Cloud",
     "xai-oauth": "xAI Grok OAuth (SuperGrok / Premium+)",
