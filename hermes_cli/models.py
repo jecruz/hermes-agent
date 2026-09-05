@@ -1535,7 +1535,8 @@ _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
     "bedrock": _bedrock_catalog,
     "azure-foundry": _azure_foundry_catalog,
     "lmstusio": _keyless_local_catalog,
-    "tokenoverdrive": _keyless_local_catalog}
+    "tokenoverdrive": _keyless_local_catalog,
+    "llmdynamix": _keyless_local_catalog}
 
 
 # ``-free`` slugs the relay still LISTS but no longer serves: the Go-only twin (``ox-alpha-free``)
