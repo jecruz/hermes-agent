@@ -1450,7 +1450,8 @@ _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
     "custom": _custom_catalog,
     "bedrock": _bedrock_catalog,
     "lmstusio": _keyless_local_catalog,
-    "tokenoverdrive": _keyless_local_catalog}
+    "tokenoverdrive": _keyless_local_catalog,
+    "llmdynamix": _keyless_local_catalog}
 
 
 # ``-free`` slugs the relay still LISTS but no longer serves: the Go-only twin (``ox-alpha-free``)
