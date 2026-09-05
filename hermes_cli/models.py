@@ -1273,7 +1273,8 @@ _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
     "bedrock": _bedrock_catalog,
     "opencode-free": _opencode_free_catalog,
     "lmstusio": _keyless_local_catalog,
-    "tokenoverdrive": _keyless_local_catalog}
+    "tokenoverdrive": _keyless_local_catalog,
+    "llmdynamix": _keyless_local_catalog}
 
 
 def _profile_live_catalog(normalized: str) -> Optional[list[str]]:

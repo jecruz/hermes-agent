@@ -294,6 +294,8 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     "lmstusio": [],
     # TokenOverdrive (local) — models discovered dynamically via /models endpoint
     "tokenoverdrive": [],
+    # LLM Dynamix (local Amp menu-bar proxy, Copilot BYOK) — models discovered dynamically via /models
+    "llmdynamix": [],
 }
 
 
@@ -351,6 +353,7 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [ProviderEntry(*row) for row in (
     ("qwen-oauth", "Qwen OAuth (Portal)", "Qwen OAuth (Reuses local Qwen CLI login)"),
     ("lmstusio", "LM Studio", "LM Studio (local models via LM Studio AI server)"),
     ("tokenoverdrive", "TokenOverdrive", "TokenOverdrive (local KV cache-accelerated models)"),
+    ("llmdynamix", "LLM Dynamix", "LLM Dynamix (Amp menu-bar proxy, Copilot BYOK)"),
 )]
 
 
@@ -480,6 +483,7 @@ _PROVIDER_ALIASES = dict((
     # targets the user's actual remote LM Studio server, not upstream's local-desktop-app default.
     ("lmstudio", "lmstusio"), ("lm-studio", "lmstusio"), ("lm_studio", "lmstusio"),
     ("token-overdrive", "tokenoverdrive"), ("token_overdrive", "tokenoverdrive"),
+    ("llm-dynamix", "llmdynamix"), ("llm_dynamix", "llmdynamix"), ("dynamix", "llmdynamix"),
 ))
 
 
