@@ -1237,6 +1237,19 @@ def _opencode_free_catalog(normalized: str, force_refresh: bool) -> list[str]:
     return _fetch_opencode_free_models(force_refresh=force_refresh) or list(_PROVIDER_MODELS.get(normalized, []))
 
 
+def _keyless_local_catalog(normalized: str, force_refresh: bool) -> Optional[list[str]]:
+    """Live /v1/models for a keyless local server (LM Studio, TokenOverdrive); None on any miss."""
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+
+        pconfig = PROVIDER_REGISTRY.get(normalized)
+        if pconfig and pconfig.inference_base_url:
+            return fetch_api_models("", pconfig.inference_base_url) or None
+        return None
+    except Exception:
+        return None
+
+
 # Per-provider catalog sources tried before the generic profile fetch. A fetcher returning None
 # falls through to the profile/curated path; a list is returned as-is (even empty).
 _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
@@ -1252,12 +1265,16 @@ _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
     # DeepInfra's generic /models mixes chat, image, video, speech and embedding models; the tagged
     # catalog helper is the only safe source for the chat picker, including its empty/failure result.
     "deepinfra": lambda normalized, force_refresh: _fetch_deepinfra_models(force_refresh=force_refresh) or [],
-    "ollama-cloud": lambda normalized, force_refresh: fetch_ollama_cloud_models(force_refresh=force_refresh) or None,
+    # Always probe live — models.dev's cache is stale for a frequently-updated local server.
+    "ollama-cloud": lambda normalized, force_refresh: fetch_ollama_cloud_models(force_refresh=True) or None,
     "openai": _openai_catalog,
     "openai-api": _openai_catalog,
     "custom": _custom_catalog,
     "bedrock": _bedrock_catalog,
-    "opencode-free": _opencode_free_catalog}
+    "opencode-free": _opencode_free_catalog,
+    "lmstusio": _keyless_local_catalog,
+    "tokenoverdrive": _keyless_local_catalog,
+    "llmdynamix": _keyless_local_catalog}
 
 
 def _profile_live_catalog(normalized: str) -> Optional[list[str]]:

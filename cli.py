@@ -2893,6 +2893,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin, CLITuiMix
         self._tool_start_time: float = 0.0
         self._pending_tool_info: dict = {}  # function_name -> [(preview, args)] for stacked scrollback
         self._spinner_text = self._command_status = ""
+        self._tool_trail: list[str] = []  # completed tool calls shown as trail
         self._last_scrollback_tool: str = ""  # "new" mode dedup
         self._command_running = self._command_blocks_input = False
         # Petdex mascot (display.pet): kitty placeholders on kitty/Ghostty, half-blocks elsewhere.
@@ -3564,6 +3565,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin, CLITuiMix
         """Post-turn bookkeeping after chat() returns (normal, error, or interrupt)."""
         self._agent_running = self._pet_reasoning = False
         self._spinner_text = self._last_scrollback_tool = ""
+        self._tool_trail = []
         self._tool_start_time = 0.0
         self._pending_tool_info.clear()
         self._pet_react_turn_end()

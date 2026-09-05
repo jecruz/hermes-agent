@@ -698,7 +698,12 @@ class CLIStreamMixin:
             _pl = get_tool_preview_max_len()
             if _pl > 0 and len(label) > _pl:
                 label = label[:_pl - 3] + "..."
-            self._spinner_text = f"{get_tool_emoji(function_name)} {label}"
+            emoji = get_tool_emoji(function_name)
+            # Add to tool trail (keep last 5)
+            self._tool_trail.append(emoji)
+            if len(self._tool_trail) > 5:
+                self._tool_trail.pop(0)
+            self._spinner_text = f"{emoji} {label}"
             self._tool_start_time = time.monotonic()
             # Store args for stacked scrollback line on completion
             self._pending_tool_info.setdefault(function_name, []).append(
