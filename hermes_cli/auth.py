@@ -2037,6 +2037,11 @@ _API_KEY_BASE_URL_RESOLVERS: Dict[str, Callable[[str, str, str], str]] = {
     "lmstudio": lambda *a: _normalize_lmstudio_runtime_base_url(_default_api_key_base_url(*a)),
     "actual": lambda *a: normalize_actual_base_url(_default_api_key_base_url(*a))}
 
+# Local OpenAI-compatible servers accept requests without a credential. They still use the
+# api_key provider path for registry compatibility, so runtime resolution supplies a sentinel
+# rather than allowing the generic empty-key guard to reject an available local endpoint.
+_LOCAL_NOAUTH_PROVIDER_IDS = frozenset({"lmstudio", "lmstusio", "tokenoverdrive", "llmdynamix"})
+
 
 def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
     """Resolve API key and base URL for an API-key provider."""
@@ -2047,11 +2052,11 @@ def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
             provider=provider_id, code="invalid_provider")
 
     api_key, key_source = _resolve_api_key_provider_secret(provider_id, pconfig)
-    # No-auth LM Studio: a placeholder so runtime / auxiliary_client see the local server as
-    # configured. doctor still reports unconfigured because the status path uses the raw secret.
-    if not api_key and provider_id == "lmstudio":
+    # No-auth local servers: a placeholder lets runtime / auxiliary_client see the endpoint as
+    # configured. The sentinel is never treated as a real credential by the local server.
+    if not api_key and provider_id in _LOCAL_NOAUTH_PROVIDER_IDS:
         api_key = LMSTUDIO_NOAUTH_PLACEHOLDER
-        key_source = key_source or "default"
+        key_source = key_source or "local-noauth"
 
     env_url = _provider_env_base_url(pconfig)
     resolve_url = _API_KEY_BASE_URL_RESOLVERS.get(provider_id, _default_api_key_base_url)
