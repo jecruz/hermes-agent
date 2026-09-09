@@ -49,6 +49,35 @@ def test_noauth_lmstudio_still_resolves(monkeypatch):
     assert resolved["api_key"]
 
 
+@pytest.mark.parametrize("provider_id", ["lmstusio", "tokenoverdrive", "llmdynamix"])
+def test_noauth_local_registry_provider_supplies_runtime_placeholder(monkeypatch, provider_id):
+    """All built-in local keyless providers must pass the runtime credential gate."""
+    base_urls = {
+        "lmstusio": "http://127.0.0.1:4521/v1",
+        "tokenoverdrive": "http://127.0.0.1:8787/v1",
+        "llmdynamix": "http://127.0.0.1:12444/v1",
+    }
+    env_url = {
+        "lmstusio": "LMSTUSIO_BASE_URL",
+        "tokenoverdrive": "TOKENOVERDRIVE_BASE_URL",
+        "llmdynamix": "LLMDYNAMIX_BASE_URL",
+    }[provider_id]
+    monkeypatch.delenv(env_url, raising=False)
+    monkeypatch.setattr(rp, "load_pool", lambda _provider: SimpleNamespace(has_credentials=lambda: False))
+    monkeypatch.setattr(
+        rp,
+        "_get_model_config",
+        lambda: {"provider": provider_id, "default": "test-model", "base_url": base_urls[provider_id]},
+    )
+
+    resolved = rp.resolve_runtime_provider(requested=provider_id)
+
+    assert resolved["provider"] == provider_id
+    assert resolved["api_key"] == "dummy-lm-api-key"
+    assert resolved["base_url"] == base_urls[provider_id]
+    assert resolved["source"] == "local-noauth"
+
+
 def _fake_invoke_jwt(ttl_seconds=3600):
     header = base64.urlsafe_b64encode(b'{"alg":"none","typ":"JWT"}').decode().rstrip("=")
     payload = base64.urlsafe_b64encode(
@@ -166,6 +195,8 @@ def test_qwen_oauth_auto_fallthrough_on_auth_failure(monkeypatch):
         lambda **kw: (_ for _ in ()).throw(AuthError("stale", provider="qwen-oauth", code="qwen_auth_missing")),
     )
     monkeypatch.setattr(rp, "_get_model_config", lambda: {})
+    # Isolate the OAuth-failure scenario from any valid credential pool entry.
+    monkeypatch.setattr(rp, "load_pool", lambda _provider: SimpleNamespace(has_credentials=lambda: False))
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-or-key")
 
     # Should NOT raise — falls through to OpenRouter

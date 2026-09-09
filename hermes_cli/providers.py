@@ -91,6 +91,9 @@ HERMES_OVERLAYS: Dict[str, HermesOverlay] = {
     # would treat a Vertex MoA slot as an unknown custom endpoint, losing the identity
     # _refresh_provider_credentials() needs to re-mint an expired token on 401.
     "vertex": HermesOverlay(auth_type="vertex"),
+    "lmstusio": HermesOverlay(base_url_env_var="LMSTUSIO_BASE_URL"),
+    "tokenoverdrive": HermesOverlay(base_url_env_var="TOKENOVERDRIVE_BASE_URL"),
+    "llmdynamix": HermesOverlay(base_url_env_var="LLMDYNAMIX_BASE_URL"),
 }
 
 
@@ -135,6 +138,11 @@ _ALIAS_GROUPS: Dict[str, Tuple[str, ...]] = {
     "nebius-token-factory": ("nebius", "nebius-tokenfactory", "nebius-tf", "token-factory", "tokenfactory"),
     "lmstudio": ("lmstudio", "lm-studio", "lm_studio"), "custom": ("ollama",),
     "local": ("vllm", "llamacpp", "llama.cpp", "llama-cpp"),
+    # Override upstream's self-mapped lmstudio aliases above: this fork's "lmstusio" provider
+    # targets the user's actual remote LM Studio server, not upstream's local-desktop-app default.
+    "lmstusio": ("lmstudio", "lm-studio", "lm_studio"),
+    "tokenoverdrive": ("token-overdrive", "token_overdrive"),
+    "llmdynamix": ("llm-dynamix", "llm_dynamix", "dynamix"),
 }
 ALIASES: Dict[str, str] = {alias: canon for canon, aliases in _ALIAS_GROUPS.items() for alias in aliases}
 
@@ -146,6 +154,7 @@ _LABEL_OVERRIDES: Dict[str, str] = {
     "copilot-acp": "GitHub Copilot ACP", "stepfun": "StepFun Step Plan", "xiaomi": "Xiaomi MiMo", "gmi": "GMI Cloud",
     "upstage": "Upstage Solar", "actual": "Actual Computer", "tencent-tokenhub": "Tencent TokenHub",
     "nebius-token-factory": "Nebius Token Factory", "tencent-tokenplan": "Tencent TokenPlan", "lmstudio": "LM Studio",
+    "lmstusio": "LM Studio", "tokenoverdrive": "TokenOverdrive", "llmdynamix": "LLM Dynamix",
     "local": "Local endpoint", "bedrock": "AWS Bedrock", "vertex": "Google Vertex AI", "ollama-cloud": "Ollama Cloud",
     "xai-oauth": "xAI Grok OAuth (SuperGrok / Premium+)", "opencode-free": "OpenCode Free",
 }
