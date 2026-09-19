@@ -49,16 +49,16 @@ def test_noauth_lmstudio_still_resolves(monkeypatch):
     assert resolved["api_key"]
 
 
-@pytest.mark.parametrize("provider_id", ["lmstusio", "tokenoverdrive", "llmdynamix"])
+@pytest.mark.parametrize("provider_id", ["lmstudio", "tokenoverdrive", "llmdynamix"])
 def test_noauth_local_registry_provider_supplies_runtime_placeholder(monkeypatch, provider_id):
     """All built-in local keyless providers must pass the runtime credential gate."""
     base_urls = {
-        "lmstusio": "http://127.0.0.1:4521/v1",
+        "lmstudio": "http://127.0.0.1:4521/v1",
         "tokenoverdrive": "http://127.0.0.1:8787/v1",
         "llmdynamix": "http://127.0.0.1:12444/v1",
     }
     env_url = {
-        "lmstusio": "LMSTUSIO_BASE_URL",
+        "lmstudio": "LM_BASE_URL",
         "tokenoverdrive": "TOKENOVERDRIVE_BASE_URL",
         "llmdynamix": "LLMDYNAMIX_BASE_URL",
     }[provider_id]
