@@ -1531,7 +1531,7 @@ class TestAzureFoundryPickerCatalog:
 @pytest.mark.parametrize(
     ("provider_id", "env_var"),
     [
-        ("lmstusio", "LMSTUSIO_BASE_URL"),
+        ("lmstudio", "LM_BASE_URL"),
         ("tokenoverdrive", "TOKENOVERDRIVE_BASE_URL"),
         ("llmdynamix", "LLMDYNAMIX_BASE_URL"),
     ],
@@ -1546,9 +1546,9 @@ def test_keyless_local_catalog_honors_base_url_override(monkeypatch, provider_id
 
 def test_keyless_local_catalog_sends_runtime_credential(monkeypatch):
     """Discovery authenticates exactly as runtime requests do, including the no-auth placeholder."""
-    monkeypatch.delenv("LMSTUSIO_BASE_URL", raising=False)
+    monkeypatch.delenv("LM_BASE_URL", raising=False)
     with patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
-        _models_mod._keyless_local_catalog("lmstusio", False)
+        _models_mod._keyless_local_catalog("lmstudio", False)
     assert fetch_api.call_args.args[0] == "dummy-lm-api-key"
 
 
@@ -1557,5 +1557,5 @@ def test_keyless_local_catalog_forwards_stored_credential():
     resolved = {"api_key": "stored-local-key", "base_url": "http://10.0.0.30:4521/v1"}
     with patch("hermes_cli.auth.resolve_api_key_provider_credentials", return_value=resolved), \
             patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
-        _models_mod._keyless_local_catalog("lmstusio", False)
+        _models_mod._keyless_local_catalog("lmstudio", False)
     assert fetch_api.call_args.args == ("stored-local-key", "http://10.0.0.30:4521/v1")
