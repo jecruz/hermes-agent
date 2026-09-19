@@ -1504,10 +1504,11 @@ def _keyless_local_catalog(normalized: str, force_refresh: bool) -> Optional[lis
     try:
         from hermes_cli.auth import resolve_api_key_provider_credentials
 
-        # Same resolver as runtime requests, so a *_BASE_URL override is probed too.
-        base_url = resolve_api_key_provider_credentials(normalized).get("base_url")
+        # Same resolver as runtime requests, so a *_BASE_URL override and any stored key apply too.
+        credentials = resolve_api_key_provider_credentials(normalized)
+        base_url = credentials.get("base_url")
         if base_url:
-            return fetch_api_models("", base_url) or None
+            return fetch_api_models(credentials.get("api_key") or "", base_url) or None
         return None
     except Exception:
         return None
