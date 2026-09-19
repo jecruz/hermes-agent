@@ -68,6 +68,7 @@ export function errText(err: unknown): string {
       const { detail } = JSON.parse(raw.slice(brace)) as {
         detail?: string | { msg?: string }[]
       }
+
       if (Array.isArray(detail)) {
         return (
           detail
@@ -76,6 +77,7 @@ export function errText(err: unknown): string {
             .join('; ') || raw
         )
       }
+
       return detail ?? raw
     } catch {
       // Not JSON — fall through to the raw message.
