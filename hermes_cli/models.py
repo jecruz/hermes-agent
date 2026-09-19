@@ -1500,13 +1500,14 @@ def _azure_foundry_catalog(normalized: str, force_refresh: bool) -> Optional[lis
 
 
 def _keyless_local_catalog(normalized: str, force_refresh: bool) -> Optional[list[str]]:
-    """Live /v1/models for a keyless local server (LM Studio, TokenOverdrive); None on any miss."""
+    """Live /v1/models for a keyless local server (LM Studio, TokenOverdrive, LLM Dynamix); None on any miss."""
     try:
-        from hermes_cli.auth import PROVIDER_REGISTRY
+        from hermes_cli.auth import resolve_api_key_provider_credentials
 
-        pconfig = PROVIDER_REGISTRY.get(normalized)
-        if pconfig and pconfig.inference_base_url:
-            return fetch_api_models("", pconfig.inference_base_url) or None
+        # Same resolver as runtime requests, so a *_BASE_URL override is probed too.
+        base_url = resolve_api_key_provider_credentials(normalized).get("base_url")
+        if base_url:
+            return fetch_api_models("", base_url) or None
         return None
     except Exception:
         return None
