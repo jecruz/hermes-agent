@@ -1536,7 +1536,9 @@ _PROVIDER_CATALOG_FETCHERS: dict[str, Any] = {
     "custom": _custom_catalog,
     "bedrock": _bedrock_catalog,
     "azure-foundry": _azure_foundry_catalog,
-    "lmstusio": _keyless_local_catalog,
+    # Upstream registers lmstudio without a catalog source, so its picker stays empty; the
+    # keyless probe lists whatever LM_BASE_URL actually serves.
+    "lmstudio": _keyless_local_catalog,
     "tokenoverdrive": _keyless_local_catalog,
     "llmdynamix": _keyless_local_catalog}
 
