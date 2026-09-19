@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import os from 'node:os'
 import path from 'node:path'
 
 import { test } from 'vitest'
@@ -204,4 +205,53 @@ test('Windows PATH casing and delimiter are preserved without POSIX sane entries
 
 test('appendUniquePathEntries drops empty entries and keeps first occurrence', () => {
   assert.equal(appendUniquePathEntries([':/a::/b', ['/a', '/c']], { delimiter: ':' }), '/a:/b:/c')
+})
+
+
+// ~/.local/bin: pip install --user and scripts/install.sh target it, but a
+// GUI-launched macOS app inherits launchd's PATH, which omits it.
+const userLocalBin = () => path.posix.join(os.homedir(), '.local', 'bin')
+
+test('POSIX backend PATH appends ~/.local/bin exactly once', () => {
+  const entries = buildDesktopBackendPath({
+    hermesHome: '/Users/test/.hermes',
+    currentPath: '/usr/bin:/bin',
+    platform: 'darwin',
+    pathModule: path.posix
+  }).split(':')
+
+  assert.equal(entries.filter(entry => entry === userLocalBin()).length, 1)
+})
+
+test('Windows backend PATH omits the POSIX home-local bin', () => {
+  const entries = buildDesktopBackendPath({
+    hermesHome: 'C:\\Users\\test\\AppData\\Local\\hermes',
+    currentPath: 'C:\\Windows\\System32',
+    platform: 'win32',
+    pathModule: path.win32
+  }).split(';')
+
+  assert.equal(entries.some(entry => entry.endsWith(path.win32.join('.local', 'bin'))), false)
+})
+
+test('inherited PATH entries outrank ~/.local/bin', () => {
+  const entries = buildDesktopBackendPath({
+    hermesHome: '/Users/test/.hermes',
+    currentPath: '/usr/bin:/bin',
+    platform: 'darwin',
+    pathModule: path.posix
+  })
+
+  assert.ok(entries.indexOf('/usr/bin') < entries.indexOf(userLocalBin()))
+})
+
+test('a ~/.local/bin already on the inherited PATH keeps its original position', () => {
+  const entries = buildDesktopBackendPath({
+    hermesHome: '/Users/test/.hermes',
+    currentPath: `${userLocalBin()}:/usr/bin`,
+    platform: 'darwin',
+    pathModule: path.posix
+  }).split(':')
+
+  assert.ok(entries.indexOf(userLocalBin()) < entries.indexOf('/usr/bin'))
 })
