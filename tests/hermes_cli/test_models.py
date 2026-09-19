@@ -1542,3 +1542,11 @@ def test_keyless_local_catalog_honors_base_url_override(monkeypatch, provider_id
     with patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
         _models_mod._keyless_local_catalog(provider_id, False)
     assert fetch_api.call_args.args[1] == "http://10.0.0.30:4521/v1"
+
+
+def test_keyless_local_catalog_sends_runtime_credential(monkeypatch):
+    """Discovery authenticates exactly as runtime requests do, including the no-auth placeholder."""
+    monkeypatch.delenv("LMSTUSIO_BASE_URL", raising=False)
+    with patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
+        _models_mod._keyless_local_catalog("lmstusio", False)
+    assert fetch_api.call_args.args[0] == "dummy-lm-api-key"
