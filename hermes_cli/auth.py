@@ -246,7 +246,6 @@ _REGISTRY_ROWS: Tuple[Any, ...] = (
     ("vertex", "Google Vertex AI", "", (), "", "vertex"),
     ("azure-foundry", "Azure Foundry", "", ("AZURE_FOUNDRY_API_KEY",), "AZURE_FOUNDRY_BASE_URL"),
     # Local, key-less OpenAI-compat servers — models discovered dynamically via /models.
-    ("lmstusio", "LM Studio", "http://127.0.0.1:4521/v1", (), "LMSTUSIO_BASE_URL"),
     ("tokenoverdrive", "TokenOverdrive", "http://127.0.0.1:8787/v1", (), "TOKENOVERDRIVE_BASE_URL"),
     ("llmdynamix", "LLM Dynamix", "http://127.0.0.1:12444/v1", (), "LLMDYNAMIX_BASE_URL"))
 PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
@@ -2142,7 +2141,7 @@ _API_KEY_BASE_URL_RESOLVERS: Dict[str, Callable[[str, str, str], str]] = {
 # Local OpenAI-compatible servers accept requests without a credential. They still use the
 # api_key provider path for registry compatibility, so runtime resolution supplies a sentinel
 # rather than allowing the generic empty-key guard to reject an available local endpoint.
-_LOCAL_NOAUTH_PROVIDER_IDS = frozenset({"lmstudio", "lmstusio", "tokenoverdrive", "llmdynamix"})
+_LOCAL_NOAUTH_PROVIDER_IDS = frozenset({"lmstudio", "tokenoverdrive", "llmdynamix"})
 
 
 def resolve_api_key_provider_credentials(provider_id: str) -> Dict[str, Any]:
