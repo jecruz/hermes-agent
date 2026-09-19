@@ -1550,3 +1550,12 @@ def test_keyless_local_catalog_sends_runtime_credential(monkeypatch):
     with patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
         _models_mod._keyless_local_catalog("lmstusio", False)
     assert fetch_api.call_args.args[0] == "dummy-lm-api-key"
+
+
+def test_keyless_local_catalog_forwards_stored_credential():
+    """A stored key for a local endpoint reaches the catalog probe unchanged."""
+    resolved = {"api_key": "stored-local-key", "base_url": "http://10.0.0.30:4521/v1"}
+    with patch("hermes_cli.auth.resolve_api_key_provider_credentials", return_value=resolved), \
+            patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
+        _models_mod._keyless_local_catalog("lmstusio", False)
+    assert fetch_api.call_args.args == ("stored-local-key", "http://10.0.0.30:4521/v1")
