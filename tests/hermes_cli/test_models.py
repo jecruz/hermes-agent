@@ -1526,3 +1526,19 @@ class TestAzureFoundryPickerCatalog:
         monkeypatch.setattr(_models_mod, "_get_model_config_dict",
                             lambda: {"provider": "azure-foundry", "base_url": "https://b.openai.azure.com/openai/v1"})
         assert _models_mod._credential_fingerprint("azure-foundry") != fp_a
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "env_var"),
+    [
+        ("lmstusio", "LMSTUSIO_BASE_URL"),
+        ("tokenoverdrive", "TOKENOVERDRIVE_BASE_URL"),
+        ("llmdynamix", "LLMDYNAMIX_BASE_URL"),
+    ],
+)
+def test_keyless_local_catalog_honors_base_url_override(monkeypatch, provider_id, env_var):
+    """Model discovery must probe the same endpoint runtime requests use, not the registry default."""
+    monkeypatch.setenv(env_var, "http://10.0.0.30:4521/v1")
+    with patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
+        _models_mod._keyless_local_catalog(provider_id, False)
+    assert fetch_api.call_args.args[1] == "http://10.0.0.30:4521/v1"
