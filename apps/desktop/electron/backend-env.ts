@@ -101,7 +101,13 @@ function buildDesktopBackendPath({
   const venvBin = venvRoot ? pathModule.join(venvRoot, platform === 'win32' ? 'Scripts' : 'bin') : null
   const saneEntries = platform === 'win32' ? [] : POSIX_SANE_PATH_ENTRIES
 
-  return appendUniquePathEntries([hermesNodeDirs, venvBin, currentPath, saneEntries], { delimiter })
+  // ~/.local/bin is the default target for pip install --user and
+  // scripts/install.sh. GUI-launched macOS apps miss it from process.env.PATH.
+  const userLocalBin = platform !== 'win32'
+    ? pathModule.join(os.homedir(), '.local', 'bin')
+    : null
+
+  return appendUniquePathEntries([hermesNodeDirs, venvBin, currentPath, userLocalBin, saneEntries], { delimiter })
 }
 
 function normalizeHermesHomeRoot(
