@@ -1526,3 +1526,36 @@ class TestAzureFoundryPickerCatalog:
         monkeypatch.setattr(_models_mod, "_get_model_config_dict",
                             lambda: {"provider": "azure-foundry", "base_url": "https://b.openai.azure.com/openai/v1"})
         assert _models_mod._credential_fingerprint("azure-foundry") != fp_a
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "env_var"),
+    [
+        ("lmstudio", "LM_BASE_URL"),
+        ("tokenoverdrive", "TOKENOVERDRIVE_BASE_URL"),
+        ("llmdynamix", "LLMDYNAMIX_BASE_URL"),
+    ],
+)
+def test_keyless_local_catalog_honors_base_url_override(monkeypatch, provider_id, env_var):
+    """Model discovery must probe the same endpoint runtime requests use, not the registry default."""
+    monkeypatch.setenv(env_var, "http://10.0.0.30:4521/v1")
+    with patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
+        _models_mod._keyless_local_catalog(provider_id, False)
+    assert fetch_api.call_args.args[1] == "http://10.0.0.30:4521/v1"
+
+
+def test_keyless_local_catalog_sends_runtime_credential(monkeypatch):
+    """Discovery authenticates exactly as runtime requests do, including the no-auth placeholder."""
+    monkeypatch.delenv("LM_BASE_URL", raising=False)
+    with patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
+        _models_mod._keyless_local_catalog("lmstudio", False)
+    assert fetch_api.call_args.args[0] == "dummy-lm-api-key"
+
+
+def test_keyless_local_catalog_forwards_stored_credential():
+    """A stored key for a local endpoint reaches the catalog probe unchanged."""
+    resolved = {"api_key": "stored-local-key", "base_url": "http://10.0.0.30:4521/v1"}
+    with patch("hermes_cli.auth.resolve_api_key_provider_credentials", return_value=resolved), \
+            patch("hermes_cli.models.fetch_api_models", return_value=["m"]) as fetch_api:
+        _models_mod._keyless_local_catalog("lmstudio", False)
+    assert fetch_api.call_args.args == ("stored-local-key", "http://10.0.0.30:4521/v1")
