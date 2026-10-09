@@ -307,6 +307,10 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     ],
     # Bare ids derived from the picker snapshot so both stay in sync.
     "ai-gateway": [mid for mid, _ in VERCEL_AI_GATEWAY_MODELS],
+    # TokenOverdrive (local) — models discovered dynamically via /models endpoint
+    "tokenoverdrive": [],
+    # LLM Dynamix (local Amp menu-bar proxy, Copilot BYOK) — models discovered dynamically via /models
+    "llmdynamix": [],
 }
 
 
@@ -362,6 +366,8 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [ProviderEntry(*row) for row in (
     ("azure-foundry", "Azure Foundry", "Azure Foundry (OpenAI-style or Anthropic-style endpoint, your Azure AI deployment)"),
     ("ai-gateway", "Vercel AI Gateway", "Vercel AI Gateway (Multi-model aggregator)"),
     ("qwen-oauth", "Qwen OAuth (Portal)", "Qwen OAuth (Reuses local Qwen CLI login)"),
+    ("tokenoverdrive", "TokenOverdrive", "TokenOverdrive (local KV cache-accelerated models)"),
+    ("llmdynamix", "LLM Dynamix", "LLM Dynamix (Amp menu-bar proxy, Copilot BYOK)"),
 )]
 
 
@@ -530,6 +536,8 @@ _PROVIDER_ALIASES = dict((
     # aliases stay unmapped: they are the managed local runtime's picker id, and the model
     # validator must reach its staged-library branch before the custom one.
     ("local", "custom"), ("vllm", "custom"),
+    ("token-overdrive", "tokenoverdrive"), ("token_overdrive", "tokenoverdrive"),
+    ("llm-dynamix", "llmdynamix"), ("llm_dynamix", "llmdynamix"), ("dynamix", "llmdynamix"),
 ))
 
 
