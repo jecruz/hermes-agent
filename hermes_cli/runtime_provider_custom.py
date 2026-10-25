@@ -279,6 +279,35 @@ def has_named_custom_provider(requested_provider: str) -> bool:
         return False
 
 
+GENERIC_WIRE_PROFILE = "custom"
+
+
+def declared_generic_wire(requested_provider: str) -> bool:
+    """True when a ``providers:`` entry for *requested_provider* declares ``wire_profile: custom``.
+
+    A built-in provider that has no profile of its own (a keyless local proxy overlay) stays on the
+    legacy wire, and its name shadows a same-named entry for routing, so the entry is matched here by
+    name regardless of that shadowing. Only the generic value is accepted; a disabled entry is ignored.
+    """
+    try:
+        from hermes_cli.config import is_provider_enabled
+
+        providers = _rp().load_config().get("providers")
+        requested_norm = _normalize_custom_provider_name(requested_provider or "")
+        if not requested_norm or not isinstance(providers, dict):
+            return False
+        for ep_name, entry in providers.items():
+            if not isinstance(entry, dict) or not is_provider_enabled(entry):
+                continue
+            if entry.get("wire_profile") != GENERIC_WIRE_PROFILE:
+                continue
+            if requested_norm in custom_provider_aliases(str(entry.get("name", "") or ep_name), str(ep_name)):
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def codex_model_provider_id(requested_provider: str) -> Optional[str]:
     """Codex ``[model_providers.<id>]`` key for a configured named custom provider — its ``custom:``
     identity without the prefix (the ``providers:`` config key; legacy ``custom_providers:`` entries
