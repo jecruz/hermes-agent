@@ -304,6 +304,10 @@ def declared_generic_wire(requested_provider: str) -> bool:
             if requested_norm in custom_provider_aliases(str(entry.get("name", "") or ep_name), str(ep_name)):
                 return True
     except Exception:
+        # Fail closed (the legacy wire) but say why: a malformed config would otherwise make the opt-in
+        # stop working with no trace.
+        logger.warning("could not evaluate providers.%s.wire_profile; keeping the legacy wire",
+                       requested_provider, exc_info=True)
         return False
     return False
 

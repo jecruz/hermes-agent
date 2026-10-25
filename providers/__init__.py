@@ -245,14 +245,11 @@ def get_provider_profile(name: str) -> ProviderProfile | None:
     # ``providers:`` / ``custom_providers:`` but lack an explicit profile entry
     # also share the generic wire policy. The helper is memoized (see
     # ``_has_named_custom_provider``) so the miss path stays cheap for per-model loops.
-    if profile is None and isinstance(name, str) and not is_custom_route:
-        if _has_named_custom_provider(name, home, key):
-            profile = lookup("custom")
     # A built-in provider without a profile (e.g. a keyless local proxy overlay) is shadowed for
     # named-custom routing; its ``providers:`` entry opts in to the generic wire policy explicitly with
     # ``wire_profile: custom`` so a configured reasoning effort reaches the endpoint.
     if profile is None and isinstance(name, str) and not is_custom_route:
-        if _declares_generic_wire(name, home, key):
+        if _has_named_custom_provider(name, home, key) or _declares_generic_wire(name, home, key):
             profile = lookup("custom")
     return profile
 

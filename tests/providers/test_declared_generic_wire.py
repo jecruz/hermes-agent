@@ -22,6 +22,14 @@ from tests.fakes.providers.chat_variants import CText, FakeChatVariantServer
 BUILTIN_WITHOUT_PROFILE = "llmdynamix"
 
 
+@pytest.fixture(autouse=True)
+def _fresh_warning_state(monkeypatch):
+    """The once-per-route warning keeps process-wide state; every test starts with it empty."""
+    import agent.chat_completion_helpers as helpers
+
+    monkeypatch.setattr(helpers, "_REASONING_NOT_SENT_WARNED", set())
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     """An isolated HERMES_HOME whose config.yaml the test writes (JSON is valid YAML), with the name memo cleared."""
@@ -50,6 +58,14 @@ def test_wire_profile_custom_opts_the_builtin_provider_into_the_generic_profile(
 def test_only_the_custom_value_is_accepted(home, value):
     home({"wire_profile": value})
     assert get_provider_profile(BUILTIN_WITHOUT_PROFILE) is None
+
+
+def test_an_unreadable_config_keeps_the_legacy_wire_and_says_why(home, monkeypatch, caplog):
+    home({"wire_profile": "custom"})
+    monkeypatch.setattr("hermes_cli.config.is_provider_enabled", lambda entry: 1 / 0)
+    with caplog.at_level(logging.WARNING):
+        assert get_provider_profile(BUILTIN_WITHOUT_PROFILE) is None
+    assert any("wire_profile" in r.getMessage() for r in caplog.records)
 
 
 def test_a_disabled_entry_does_not_opt_in(home):

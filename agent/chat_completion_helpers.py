@@ -1522,6 +1522,7 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
 
 
 _REASONING_NOT_SENT_WARNED: set[tuple[str, str]] = set()
+_REASONING_NOT_SENT_LOCK = threading.Lock()
 
 
 def warn_reasoning_effort_not_sent(agent, reasoning_config, *, supports_reasoning: bool) -> None:
@@ -1532,9 +1533,10 @@ def warn_reasoning_effort_not_sent(agent, reasoning_config, *, supports_reasonin
     if not effort or effort == "none":
         return
     route = (str(getattr(agent, "provider", "") or ""), str(getattr(agent, "model", "") or ""))
-    if route in _REASONING_NOT_SENT_WARNED:
-        return
-    _REASONING_NOT_SENT_WARNED.add(route)
+    with _REASONING_NOT_SENT_LOCK:
+        if route in _REASONING_NOT_SENT_WARNED:
+            return
+        _REASONING_NOT_SENT_WARNED.add(route)
     logger.warning(
         "reasoning effort %r is configured but provider %r has no reasoning wire policy, so it is not sent "
         "(the endpoint's own default applies). Add `wire_profile: custom` to its `providers:` entry to send it.",
