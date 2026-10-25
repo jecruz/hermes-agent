@@ -1521,7 +1521,7 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
     )
 
 
-_REASONING_NOT_SENT_WARNED: set[tuple[str, str]] = set()
+_REASONING_NOT_SENT_WARNED: set[tuple[str, str, str]] = set()
 _REASONING_NOT_SENT_LOCK = threading.Lock()
 
 
@@ -1532,7 +1532,11 @@ def warn_reasoning_effort_not_sent(agent, reasoning_config, *, supports_reasonin
     effort = str(reasoning_config.get("effort") or "").strip().lower()
     if not effort or effort == "none":
         return
-    route = (str(getattr(agent, "provider", "") or ""), str(getattr(agent, "model", "") or ""))
+    from hermes_constants import hermes_home_key
+
+    # Scoped by the owning profile home as well: one multiplexed gateway process serves several profiles
+    # that can share provider and model names but not their config.
+    route = (hermes_home_key(), str(getattr(agent, "provider", "") or ""), str(getattr(agent, "model", "") or ""))
     with _REASONING_NOT_SENT_LOCK:
         if route in _REASONING_NOT_SENT_WARNED:
             return
@@ -1540,7 +1544,7 @@ def warn_reasoning_effort_not_sent(agent, reasoning_config, *, supports_reasonin
     logger.warning(
         "reasoning effort %r is configured but provider %r has no reasoning wire policy, so it is not sent "
         "(the endpoint's own default applies). Add `wire_profile: custom` to its `providers:` entry to send it.",
-        effort, route[0])
+        effort, route[1])
 
 
 def _build_api_kwargs_for_mode(agent, api_messages: list, tools_for_api: list | None = None) -> dict:

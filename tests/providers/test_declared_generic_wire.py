@@ -119,6 +119,17 @@ def test_a_configured_effort_that_goes_nowhere_is_logged_once(home, caplog):
     assert len(messages) == 1 and "wire_profile: custom" in messages[0]
 
 
+def test_the_warning_is_scoped_to_the_owning_profile_home(tmp_path, monkeypatch, caplog):
+    from agent.chat_completion_helpers import warn_reasoning_effort_not_sent
+
+    agent = type("Agent", (), {"provider": BUILTIN_WITHOUT_PROFILE, "model": "gpt-6.1-sol"})()
+    with caplog.at_level(logging.WARNING):
+        for profile_home in ("a", "a", "b"):
+            monkeypatch.setenv("HERMES_HOME", str(tmp_path / profile_home))
+            warn_reasoning_effort_not_sent(agent, {"enabled": True, "effort": "high"}, supports_reasoning=False)
+    assert len([r for r in caplog.records if "reasoning effort" in r.getMessage()]) == 2
+
+
 def test_nothing_is_logged_when_the_effort_is_sent_or_unset(home, caplog):
     from agent.chat_completion_helpers import warn_reasoning_effort_not_sent
 
