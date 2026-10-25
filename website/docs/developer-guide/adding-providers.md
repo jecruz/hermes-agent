@@ -16,6 +16,8 @@ Hermes can already talk to any OpenAI-compatible endpoint through the custom pro
 
 If the provider is just "another OpenAI-compatible base URL and API key", a named custom provider may be enough.
 
+A built-in provider that has no provider profile of its own (for example a keyless local proxy overlay) stays on the legacy chat-completions path: a configured `agent.reasoning_effort` is not sent to it, the endpoint's own default applies, and Hermes logs one warning per route. A user opts such a provider in to the generic OpenAI-compatible wire policy (top-level `reasoning_effort`) with `wire_profile: custom` on its `providers:` entry; the preferred long-term fix for a provider that is shipped is a real profile plugin.
+
 ## The mental model
 
 A built-in provider has to line up across a few layers:

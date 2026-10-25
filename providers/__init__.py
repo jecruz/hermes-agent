@@ -189,6 +189,27 @@ def _has_named_custom_provider(name: str, home: Path | None, hkey: str) -> bool:
     return memo[name]
 
 
+def _declares_generic_wire(name: str, home: Path | None, hkey: str) -> bool:
+    """``declared_generic_wire`` memoized on the home's config file signature (shares the named-custom memo)."""
+    from utils import file_signature
+
+    try:
+        sig = file_signature((home / "config.yaml").stat()) if home is not None else None
+    except OSError:
+        sig = None
+    memo = _NAMED_CUSTOM_MEMO.get(hkey)
+    if memo is None or _NAMED_CUSTOM_MEMO_SIG.get(hkey, _NAMED_CUSTOM_MEMO_NO_SIG) != sig:
+        memo = {}
+        _NAMED_CUSTOM_MEMO[hkey] = memo
+        _NAMED_CUSTOM_MEMO_SIG[hkey] = sig
+    memo_key = f"wire:{name}"
+    if memo_key not in memo:
+        from hermes_cli.runtime_provider_custom import declared_generic_wire
+
+        memo[memo_key] = declared_generic_wire(name)
+    return memo[memo_key]
+
+
 def get_provider_profile(name: str) -> ProviderProfile | None:
     """Look up a provider profile by name or alias.
 
@@ -224,8 +245,11 @@ def get_provider_profile(name: str) -> ProviderProfile | None:
     # ``providers:`` / ``custom_providers:`` but lack an explicit profile entry
     # also share the generic wire policy. The helper is memoized (see
     # ``_has_named_custom_provider``) so the miss path stays cheap for per-model loops.
+    # A built-in provider without a profile (e.g. a keyless local proxy overlay) is shadowed for
+    # named-custom routing; its ``providers:`` entry opts in to the generic wire policy explicitly with
+    # ``wire_profile: custom`` so a configured reasoning effort reaches the endpoint.
     if profile is None and isinstance(name, str) and not is_custom_route:
-        if _has_named_custom_provider(name, home, key):
+        if _has_named_custom_provider(name, home, key) or _declares_generic_wire(name, home, key):
             profile = lookup("custom")
     return profile
 

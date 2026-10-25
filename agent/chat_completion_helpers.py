@@ -1481,6 +1481,7 @@ def _build_chat_completions_kwargs(agent, api_messages, tools_for_api, reasoning
         return transport.build_kwargs(provider_profile=_profile, **_common)
 
     # Legacy flag path: only for a provider absent from the providers/ registry.
+    warn_reasoning_effort_not_sent(agent, reasoning_config, supports_reasoning=_common["supports_reasoning"])
     return transport.build_kwargs(
         **_common,
         model_lower=(agent.model or "").lower(),
@@ -1518,6 +1519,32 @@ def build_api_kwargs(agent, api_messages: list, tools_for_api: list | None = Non
         getattr(agent, "base_url", None),
         getattr(agent, "session_id", None),
     )
+
+
+_REASONING_NOT_SENT_WARNED: set[tuple[str, str, str]] = set()
+_REASONING_NOT_SENT_LOCK = threading.Lock()
+
+
+def warn_reasoning_effort_not_sent(agent, reasoning_config, *, supports_reasoning: bool) -> None:
+    """Say once per route that a configured reasoning effort is not sent, instead of dropping it silently."""
+    if supports_reasoning or not isinstance(reasoning_config, dict) or reasoning_config.get("enabled") is False:
+        return
+    effort = str(reasoning_config.get("effort") or "").strip().lower()
+    if not effort or effort == "none":
+        return
+    from hermes_constants import hermes_home_key
+
+    # Scoped by the owning profile home as well: one multiplexed gateway process serves several profiles
+    # that can share provider and model names but not their config.
+    route = (hermes_home_key(), str(getattr(agent, "provider", "") or ""), str(getattr(agent, "model", "") or ""))
+    with _REASONING_NOT_SENT_LOCK:
+        if route in _REASONING_NOT_SENT_WARNED:
+            return
+        _REASONING_NOT_SENT_WARNED.add(route)
+    logger.warning(
+        "reasoning effort %r is configured but provider %r has no reasoning wire policy, so it is not sent "
+        "(the endpoint's own default applies). Add `wire_profile: custom` to its `providers:` entry to send it.",
+        effort, route[1])
 
 
 def _build_api_kwargs_for_mode(agent, api_messages: list, tools_for_api: list | None = None) -> dict:
